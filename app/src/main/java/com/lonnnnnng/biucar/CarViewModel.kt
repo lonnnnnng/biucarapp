@@ -81,6 +81,8 @@ data class CarUiState(
     val controllerReady: Boolean = false,
     val nowTitle: String = "尚未播放",
     val nowArtist: String = "",
+    val nowArtworkUrl: String = "",
+    val isMultiPage: Boolean = false,
     val isPlaying: Boolean = false,
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
@@ -88,6 +90,7 @@ data class CarUiState(
     val currentQueueIndex: Int = -1,
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
     val shuffleEnabled: Boolean = false,
+    val liked: Boolean = false,
     val resolvingMedia: Boolean = false,
     val message: String? = null,
 )
@@ -99,6 +102,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     private var loginJob: Job? = null
     private var progressJob: Job? = null
     private var mediaResolveJob: Job? = null
+    private var likedMediaId: String? = null
     private var controller: MediaController? = null
     private val controllerFuture = MediaController.Builder(
         application,
@@ -436,6 +440,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
                         .setTitle(item.pageTitle?.takeIf(String::isNotBlank) ?: item.title)
                         .setAlbumTitle(item.title)
                         .setArtist(item.artist)
+                        .setArtworkUri(item.artworkUrl.takeIf(String::isNotBlank)?.let(Uri::parse))
                         .setExtras(extras)
                         .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
                         .build(),
@@ -486,6 +491,32 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         }
         active.repeatMode = next
         syncPlayerState()
+    }
+
+    fun cyclePlaybackOrder() {
+        val active = controller ?: return
+        when {
+            active.repeatMode == Player.REPEAT_MODE_OFF && !active.shuffleModeEnabled -> {
+                active.repeatMode = Player.REPEAT_MODE_ONE
+            }
+            active.repeatMode == Player.REPEAT_MODE_ONE -> {
+                active.repeatMode = Player.REPEAT_MODE_ALL
+            }
+            active.repeatMode == Player.REPEAT_MODE_ALL && !active.shuffleModeEnabled -> {
+                active.shuffleModeEnabled = true
+            }
+            else -> {
+                active.repeatMode = Player.REPEAT_MODE_OFF
+                active.shuffleModeEnabled = false
+            }
+        }
+        syncPlayerState()
+    }
+
+    fun toggleLiked() {
+        val currentMediaId = controller?.currentMediaItem?.mediaId ?: return
+        likedMediaId = if (likedMediaId == currentMediaId) null else currentMediaId
+        _uiState.update { it.copy(liked = likedMediaId == currentMediaId) }
     }
 
     fun toggleShuffle() {
@@ -544,6 +575,9 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 nowTitle = metadata.title?.toString()?.takeIf(String::isNotBlank) ?: "尚未播放",
                 nowArtist = metadata.artist?.toString().orEmpty(),
+                nowArtworkUrl = metadata.artworkUri?.toString().orEmpty(),
+                isMultiPage = metadata.extras?.getString(EXTRA_PAGE_TITLE).orEmpty().isNotBlank(),
+                liked = likedMediaId == active.currentMediaItem?.mediaId,
                 isPlaying = active.isPlaying,
                 positionMs = active.currentPosition.coerceAtLeast(0L),
                 durationMs = active.duration.takeIf { duration -> duration != C.TIME_UNSET && duration > 0L } ?: 0L,

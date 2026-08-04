@@ -493,7 +493,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         mediaResolveJob = viewModelScope.launch {
             _uiState.update { it.copy(resolvingMedia = true) }
             var queueStarted = false
-            runCatching {
+            try {
                 container.bilibiliRepository.resolveAudioTracks(video, pageIndex).collect { track ->
                     if (!queueStarted) {
                         // long: 首 P 到达后立即替换旧队列并开播；后续分 P 渐进追加，兼顾老车机首播速度与自动连续播放。
@@ -504,11 +504,13 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
                         appendMediaItem(track.toMediaItem())
                     }
                 }
+            } catch (error: CancellationException) {
+                // long: 用户切换到另一条资源时，旧请求的取消是正常流程，不能把它伪装成播放失败提示干扰当前操作。
+                throw error
+            } catch (error: Throwable) {
+                _uiState.update { it.copy(resolvingMedia = false) }
+                showError(if (queueStarted) "后续分 P 解析失败" else "音频解析失败", error)
             }
-                .onFailure { error ->
-                    _uiState.update { it.copy(resolvingMedia = false) }
-                    showError(if (queueStarted) "后续分 P 解析失败" else "音频解析失败", error)
-                }
         }
     }
 

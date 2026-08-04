@@ -554,9 +554,9 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.QueueMusic, contentDescription = null, tint = CarGreen, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(7.dp))
-                        Text("播放列表", color = CarText, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                        Text("播放列表", color = CarText, fontSize = 18.sp, fontWeight = FontWeight.Medium)
                         Spacer(Modifier.weight(1f))
-                        Text("${state.playbackQueue.size} 项", color = CarMuted, fontSize = 13.sp)
+                        Text("${state.playbackQueue.size} 项", color = CarMuted, fontSize = 14.sp)
                     }
                     Spacer(Modifier.height(7.dp))
                     HorizontalDivider(color = CarDivider)
@@ -566,9 +566,9 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                     ) {
                         itemsIndexed(state.playbackQueue, key = { _, item -> item.mediaId }) { index, item ->
                             Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                    .height(46.dp)
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(52.dp)
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(if (index == state.currentQueueIndex) CarSurfaceRaised else Color.Transparent)
                                     .clickable { viewModel.selectQueueItem(index) }
@@ -578,7 +578,7 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                                 Text(
                                     queueTitleForDisplay(item.title),
                                     color = if (index == state.currentQueueIndex) CarText else CarMuted,
-                                    fontSize = 15.sp,
+                                    fontSize = 17.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )

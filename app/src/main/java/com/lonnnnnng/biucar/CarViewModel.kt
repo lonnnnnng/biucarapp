@@ -138,6 +138,8 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         override fun onIsPlayingChanged(isPlaying: Boolean) = syncPlayerState()
         override fun onPlaybackStateChanged(playbackState: Int) = syncPlayerState()
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = syncPlayerState()
+        override fun onRepeatModeChanged(repeatMode: Int) = persistPlaybackOrder()
+        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) = persistPlaybackOrder()
         override fun onPlayerError(error: PlaybackException) = showError("播放中断，点击播放可重试", error)
     }
 
@@ -642,6 +644,14 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     private fun applyPlaybackOrder(active: Player, mode: PlaybackOrderMode) {
         active.repeatMode = mode.repeatMode
         active.shuffleModeEnabled = mode.shuffleEnabled
+    }
+
+    private fun persistPlaybackOrder() {
+        controller?.let { active ->
+            container.playbackOrderStore.write(
+                PlaybackOrderMode.fromPlayerState(active.repeatMode, active.shuffleModeEnabled),
+            )
+        }
     }
 
     fun toggleLiked() {

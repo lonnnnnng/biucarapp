@@ -38,7 +38,7 @@ import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
@@ -401,7 +401,7 @@ private fun FolderRow(folder: FavoriteFolder, selected: Boolean, onClick: () -> 
 private fun HistoryScreen(state: CarUiState, viewModel: CarViewModel) {
     Column(Modifier.fillMaxSize()) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            CompactTab("离线历史", state.historyMode == HistoryMode.LOCAL) { viewModel.selectHistoryMode(HistoryMode.LOCAL) }
+            CompactTab("本地历史", state.historyMode == HistoryMode.LOCAL) { viewModel.selectHistoryMode(HistoryMode.LOCAL) }
             CompactTab("B站历史", state.historyMode == HistoryMode.ONLINE) { viewModel.selectHistoryMode(HistoryMode.ONLINE) }
             if (state.historyMode == HistoryMode.ONLINE) {
                 IconButton(onClick = { viewModel.loadOnlineHistory(true) }) {
@@ -799,12 +799,6 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
     }
 }
 
-private fun repeatModeLabel(mode: Int): String = when (mode) {
-    androidx.media3.common.Player.REPEAT_MODE_ONE -> "单曲循环"
-    androidx.media3.common.Player.REPEAT_MODE_ALL -> "列表循环"
-    else -> "顺序播放"
-}
-
 private fun playbackOrderLabel(mode: Int, shuffleEnabled: Boolean): String = when {
     shuffleEnabled -> "随机播放"
     mode == androidx.media3.common.Player.REPEAT_MODE_ONE -> "单曲循环"
@@ -918,26 +912,49 @@ private fun VideoRow(video: Video, onPlay: () -> Unit) {
 
 @Composable
 private fun HistoryRow(item: PlaybackHistoryEntity, onPlay: () -> Unit) {
+    val cacheState = runCatching { AudioCacheState.valueOf(item.cacheState) }.getOrDefault(AudioCacheState.NONE)
     Row(
         Modifier.fillMaxWidth().height(62.dp).clickable(onClick = onPlay).padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            if (item.cacheState == AudioCacheState.READY.name) Icons.Rounded.CloudOff else Icons.Rounded.History,
-            contentDescription = null,
-            tint = if (item.cacheState == AudioCacheState.READY.name) CarGreen else CarMuted,
-            modifier = Modifier.size(24.dp),
-        )
+        if (cacheState == AudioCacheState.CACHING) {
+            CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
+        } else {
+            Icon(
+                if (cacheState == AudioCacheState.READY) Icons.Rounded.CloudDone else Icons.Rounded.History,
+                contentDescription = cacheStatusLabel(cacheState),
+                tint = when (cacheState) {
+                    AudioCacheState.READY -> CarGreen
+                    AudioCacheState.FAILED -> Color(0xFFE0A05A)
+                    else -> CarMuted
+                },
+                modifier = Modifier.size(24.dp),
+            )
+        }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(queueTitleForDisplay(item.pageTitle?.takeIf(String::isNotBlank) ?: item.title), color = CarText, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(3.dp))
             Text(item.artist, color = CarMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Text("${formatDuration(item.lastPositionMs)} / ${formatDuration(item.durationMs)}", color = CarMuted, fontSize = 11.sp)
+        Column(horizontalAlignment = Alignment.End) {
+            Text("${formatDuration(item.lastPositionMs)} / ${formatDuration(item.durationMs)}", color = CarMuted, fontSize = 11.sp)
+            Text(
+                cacheStatusLabel(cacheState),
+                color = if (cacheState == AudioCacheState.READY) CarGreen else CarMuted,
+                fontSize = 10.sp,
+            )
+        }
         Spacer(Modifier.width(12.dp))
         Icon(Icons.Rounded.PlayArrow, contentDescription = "播放历史", tint = CarGreen, modifier = Modifier.size(28.dp))
     }
+}
+
+private fun cacheStatusLabel(state: AudioCacheState): String = when (state) {
+    AudioCacheState.READY -> "离线可用"
+    AudioCacheState.CACHING -> "缓存中"
+    AudioCacheState.FAILED -> "缓存失败"
+    AudioCacheState.NONE -> "仅在线"
 }
 
 @Composable

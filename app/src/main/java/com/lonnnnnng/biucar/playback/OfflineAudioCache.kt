@@ -9,6 +9,8 @@ import com.lonnnnnng.biucar.data.model.EXTRA_STREAM_URL
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -22,6 +24,7 @@ class OfflineAudioCache(
     private val client: OkHttpClient,
     private val historyRepository: PlaybackHistoryRepository,
     private val maxBytes: Long = DEFAULT_MAX_BYTES,
+    private val maxItemBytes: Long = minOf(DEFAULT_MAX_ITEM_BYTES, maxBytes),
 ) {
     private val directory = File(context.filesDir, "offline-audio").apply { mkdirs() }
     private val mutex = Mutex()
@@ -44,7 +47,10 @@ class OfflineAudioCache(
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) throw IOException("音频缓存 HTTP ${response.code}")
                     val body = response.body ?: throw IOException("音频缓存响应为空")
-                    FileOutputStream(tempFile).use { output -> body.byteStream().use { input -> input.copyTo(output, 64 * 1024) } }
+                    if (body.contentLength() > maxItemBytes) throw IOException("单条音频超过离线缓存上限")
+                    FileOutputStream(tempFile).use { output ->
+                        body.byteStream().use { input -> input.copyToWithLimit(output, maxItemBytes) }
+                    }
                 }
                 if (tempFile.length() <= 0L) throw IOException("音频缓存写入失败")
                 if (finalFile.exists() && !finalFile.delete()) throw IOException("旧缓存无法替换")
@@ -83,5 +89,22 @@ class OfflineAudioCache(
 
     private companion object {
         const val DEFAULT_MAX_BYTES = 512L * 1024L * 1024L
+        const val DEFAULT_MAX_ITEM_BYTES = 256L * 1024L * 1024L
+    }
+}
+
+internal fun InputStream.copyToWithLimit(output: OutputStream, maxBytes: Long, bufferSize: Int = 64 * 1024): Long {
+    require(maxBytes >= 0L && bufferSize > 0)
+    val buffer = ByteArray(bufferSize)
+    var copied = 0L
+    while (true) {
+        val read = read(buffer)
+        if (read < 0) return copied
+        if (copied + read > maxBytes) {
+            // long: 在写入超限数据前终止，保证未知 Content-Length 的 CDN 响应也不会突破单项磁盘预算。
+            throw IOException("单条音频超过离线缓存上限")
+        }
+        output.write(buffer, 0, read)
+        copied += read
     }
 }

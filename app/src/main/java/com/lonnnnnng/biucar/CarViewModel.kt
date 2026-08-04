@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.ComponentName
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -126,7 +127,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         override fun onIsPlayingChanged(isPlaying: Boolean) = syncPlayerState()
         override fun onPlaybackStateChanged(playbackState: Int) = syncPlayerState()
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = syncPlayerState()
-        override fun onPlayerError(error: PlaybackException) = showError("播放失败", error)
+        override fun onPlayerError(error: PlaybackException) = showError("播放中断，点击播放可重试", error)
     }
 
     init {
@@ -552,7 +553,15 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun togglePlayback() {
         val active = controller ?: return
-        if (active.isPlaying) active.pause() else active.play()
+        when {
+            active.isPlaying -> active.pause()
+            active.playerError != null || active.playbackState == Player.STATE_IDLE -> {
+                // long: Media3 进入错误/空闲状态后单纯 play 不会重新建流，用户再次点击时必须 prepare 才能恢复临时网络中断。
+                active.prepare()
+                active.play()
+            }
+            else -> active.play()
+        }
     }
 
     fun playPrevious() {
@@ -577,17 +586,6 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
             active.play()
             syncPlayerState()
         }
-    }
-
-    fun cycleRepeatMode() {
-        val active = controller ?: return
-        val next = when (active.repeatMode) {
-            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ONE
-            Player.REPEAT_MODE_ONE -> Player.REPEAT_MODE_ALL
-            else -> Player.REPEAT_MODE_OFF
-        }
-        active.repeatMode = next
-        syncPlayerState()
     }
 
     fun cyclePlaybackOrder() {
@@ -640,12 +638,6 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
                 container.likedMediaRepository.add(item)
             }
         }
-    }
-
-    fun toggleShuffle() {
-        val active = controller ?: return
-        active.shuffleModeEnabled = !active.shuffleModeEnabled
-        syncPlayerState()
     }
 
     fun seekTo(positionMs: Long) {
@@ -727,7 +719,9 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun showError(prefix: String, error: Throwable) {
-        _uiState.update { it.copy(message = "$prefix：${error.message ?: "未知错误"}") }
+        // long: 车机界面只显示可理解的短提示，完整异常写入 Logcat，避免 URL 和底层堆栈挤满驾驶界面。
+        Log.e(TAG, prefix, error)
+        _uiState.update { it.copy(message = prefix) }
     }
 
     override fun onCleared() {
@@ -742,6 +736,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private companion object {
+        const val TAG = "CarViewModel"
         const val QR_POLL_INTERVAL_MS = 2_000L
     }
 }

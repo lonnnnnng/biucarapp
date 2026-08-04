@@ -119,6 +119,11 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     private var loginJob: Job? = null
     private var accountJob: Job? = null
     private var homeLoadJob: Job? = null
+    private var creatorsJob: Job? = null
+    private var creatorSearchJob: Job? = null
+    private var favoriteFoldersJob: Job? = null
+    private var favoriteVideosJob: Job? = null
+    private var onlineHistoryJob: Job? = null
     private var progressJob: Job? = null
     private var mediaResolveJob: Job? = null
     private var controller: MediaController? = null
@@ -278,6 +283,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     fun logout() {
         loginJob?.cancel()
         accountJob?.cancel()
+        cancelAccountScopedJobs()
         container.credentialStore.clear()
         viewModelScope.launch { container.creatorSelectionRepository.replaceAll(emptyList()) }
         _uiState.update {
@@ -337,21 +343,23 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     fun loadAvailableCreators() {
         val account = _uiState.value.account
         if (!account.isLoggedIn || account.mid <= 0L || _uiState.value.sourcesLoading) return
-        viewModelScope.launch {
+        creatorsJob?.cancel()
+        creatorsJob = viewModelScope.launch {
             _uiState.update { it.copy(sourcesLoading = true) }
-            runCatching { container.bilibiliRepository.followingCreators(account.mid) }
-                .onSuccess { creators ->
-                    _uiState.update {
-                        it.copy(
-                            availableCreators = creators,
-                            sourcesLoading = false,
-                        )
-                    }
+            try {
+                val creators = container.bilibiliRepository.followingCreators(account.mid)
+                _uiState.update {
+                    it.copy(
+                        availableCreators = creators,
+                        sourcesLoading = false,
+                    )
                 }
-                .onFailure { error ->
-                    _uiState.update { it.copy(sourcesLoading = false) }
-                    showError("关注列表加载失败", error)
-                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _uiState.update { it.copy(sourcesLoading = false) }
+                showError("关注列表加载失败", error)
+            }
         }
     }
 
@@ -367,17 +375,27 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     fun searchCreators() {
         val keyword = _uiState.value.creatorSearchKeyword.trim()
         if (keyword.isBlank() || _uiState.value.creatorSearchLoading) return
-        viewModelScope.launch {
+        creatorSearchJob?.cancel()
+        creatorSearchJob = viewModelScope.launch {
             _uiState.update { it.copy(creatorSearchLoading = true, creatorSearchResults = emptyList()) }
-            runCatching { container.bilibiliRepository.searchCreators(keyword) }
-                .onSuccess { result ->
-                    _uiState.update { it.copy(creatorSearchResults = result.items, creatorSearchLoading = false) }
-                }
-                .onFailure { error ->
-                    _uiState.update { it.copy(creatorSearchLoading = false) }
-                    showError("UP 主搜索失败", error)
-                }
+            try {
+                val result = container.bilibiliRepository.searchCreators(keyword)
+                _uiState.update { it.copy(creatorSearchResults = result.items, creatorSearchLoading = false) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _uiState.update { it.copy(creatorSearchLoading = false) }
+                showError("UP 主搜索失败", error)
+            }
         }
+    }
+
+    private fun cancelAccountScopedJobs() {
+        creatorsJob?.cancel()
+        creatorSearchJob?.cancel()
+        favoriteFoldersJob?.cancel()
+        favoriteVideosJob?.cancel()
+        onlineHistoryJob?.cancel()
     }
 
     fun toggleCreator(creator: Creator) {
@@ -416,21 +434,22 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         val selectedFolderId = state.selectedFavoriteFolder?.takeIf { it.group == group }?.id
-        viewModelScope.launch {
+        favoriteFoldersJob = viewModelScope.launch {
             _uiState.update { it.copy(favoriteLoading = true) }
-            runCatching { container.bilibiliRepository.favoriteFolders(state.account.mid, group) }
-                .onSuccess { folders ->
-                    _uiState.update { it.copy(favoriteFolders = it.favoriteFolders + (group to folders), favoriteLoading = false) }
-                    // long: 手动刷新收藏夹时保留当前目录，避免驾驶途中刷新后视线和操作焦点突然跳回第一项。
-                    selectFavoriteFolder(
-                        folders.firstOrNull { it.id == selectedFolderId } ?: folders.firstOrNull(),
-                        forceReload = forceRefresh,
-                    )
-                }
-                .onFailure { error ->
-                    _uiState.update { it.copy(favoriteLoading = false) }
-                    showError("收藏夹加载失败", error)
-                }
+            try {
+                val folders = container.bilibiliRepository.favoriteFolders(state.account.mid, group)
+                _uiState.update { it.copy(favoriteFolders = it.favoriteFolders + (group to folders), favoriteLoading = false) }
+                // long: 手动刷新收藏夹时保留当前目录，避免驾驶途中刷新后视线和操作焦点突然跳回第一项。
+                selectFavoriteFolder(
+                    folders.firstOrNull { it.id == selectedFolderId } ?: folders.firstOrNull(),
+                    forceReload = forceRefresh,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _uiState.update { it.copy(favoriteLoading = false) }
+                showError("收藏夹加载失败", error)
+            }
         }
     }
 
@@ -450,46 +469,48 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         val folder = _uiState.value.selectedFavoriteFolder ?: return
         if (_uiState.value.favoriteLoading) return
         val page = if (reset) 1 else _uiState.value.favoritePage + 1
-        viewModelScope.launch {
+        favoriteVideosJob = viewModelScope.launch {
             _uiState.update { it.copy(favoriteLoading = true) }
-            runCatching { container.bilibiliRepository.favoriteVideos(folder, page) }
-                .onSuccess { result ->
-                    _uiState.update {
-                        val previous = if (reset) emptyList() else it.favoriteVideos
-                        it.copy(
-                            favoriteVideos = (previous + result.items).distinctBy(Video::bvid),
-                            favoritePage = result.page,
-                            favoriteHasMore = result.hasMore,
-                            favoriteLoading = false,
-                        )
-                    }
+            try {
+                val result = container.bilibiliRepository.favoriteVideos(folder, page)
+                _uiState.update {
+                    val previous = if (reset) emptyList() else it.favoriteVideos
+                    it.copy(
+                        favoriteVideos = (previous + result.items).distinctBy(Video::bvid),
+                        favoritePage = result.page,
+                        favoriteHasMore = result.hasMore,
+                        favoriteLoading = false,
+                    )
                 }
-                .onFailure { error ->
-                    _uiState.update { it.copy(favoriteLoading = false) }
-                    showError("收藏内容加载失败", error)
-                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _uiState.update { it.copy(favoriteLoading = false) }
+                showError("收藏内容加载失败", error)
+            }
         }
     }
 
     fun loadOnlineHistory(reset: Boolean = false) {
         if (!_uiState.value.account.isLoggedIn || _uiState.value.onlineHistoryLoading) return
-        viewModelScope.launch {
+        onlineHistoryJob = viewModelScope.launch {
             _uiState.update { it.copy(onlineHistoryLoading = true) }
-            runCatching { container.bilibiliRepository.onlineHistory(if (reset) null else _uiState.value.historyCursor) }
-                .onSuccess { result ->
-                    _uiState.update {
-                        val previous = if (reset) emptyList() else it.onlineHistory
-                        it.copy(
-                            onlineHistory = (previous + result.items).distinctBy { video -> "${video.bvid}:${video.cid}" },
-                            historyCursor = result.nextCursor,
-                            onlineHistoryLoading = false,
-                        )
-                    }
+            try {
+                val result = container.bilibiliRepository.onlineHistory(if (reset) null else _uiState.value.historyCursor)
+                _uiState.update {
+                    val previous = if (reset) emptyList() else it.onlineHistory
+                    it.copy(
+                        onlineHistory = (previous + result.items).distinctBy { video -> "${video.bvid}:${video.cid}" },
+                        historyCursor = result.nextCursor,
+                        onlineHistoryLoading = false,
+                    )
                 }
-                .onFailure { error ->
-                    _uiState.update { it.copy(onlineHistoryLoading = false) }
-                    showError("在线历史加载失败", error)
-                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _uiState.update { it.copy(onlineHistoryLoading = false) }
+                showError("在线历史加载失败", error)
+            }
         }
     }
 
@@ -742,6 +763,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         loginJob?.cancel()
         accountJob?.cancel()
+        cancelAccountScopedJobs()
         homeLoadJob?.cancel()
         progressJob?.cancel()
         mediaResolveJob?.cancel()

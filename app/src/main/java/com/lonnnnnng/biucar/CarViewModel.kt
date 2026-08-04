@@ -117,6 +117,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(CarUiState())
     val uiState: StateFlow<CarUiState> = _uiState.asStateFlow()
     private var loginJob: Job? = null
+    private var accountJob: Job? = null
     private var homeLoadJob: Job? = null
     private var progressJob: Job? = null
     private var mediaResolveJob: Job? = null
@@ -204,20 +205,23 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshAccount() {
-        viewModelScope.launch {
+        accountJob?.cancel()
+        accountJob = viewModelScope.launch {
             _uiState.update { it.copy(accountLoading = true) }
-            runCatching { container.bilibiliRepository.account() }
-                .onSuccess { account ->
-                    _uiState.update { it.copy(account = account, accountLoading = false) }
-                    // long: 媒体库默认停留在“我创建的”，账号态确认后立即预加载收藏夹，避免首屏空白必须切换标签才出现数据。
-                    if (account.isLoggedIn && _uiState.value.librarySection == LibrarySection.CREATED) {
-                        loadFavoriteFolders(FavoriteGroup.CREATED)
-                    }
+            try {
+                val account = container.bilibiliRepository.account()
+                _uiState.update { it.copy(account = account, accountLoading = false) }
+                // long: 媒体库默认停留在“我创建的”，账号态确认后立即预加载收藏夹，避免首屏空白必须切换标签才出现数据。
+                if (account.isLoggedIn && _uiState.value.librarySection == LibrarySection.CREATED) {
+                    loadFavoriteFolders(FavoriteGroup.CREATED)
                 }
-                .onFailure { error ->
-                    _uiState.update { it.copy(account = Account(), accountLoading = false) }
-                    showError("账号状态读取失败", error)
-                }
+            } catch (error: CancellationException) {
+                // long: 退出登录或手动刷新会取消旧请求，取消不代表账号读取失败，不能覆盖新的登录状态。
+                throw error
+            } catch (error: Throwable) {
+                _uiState.update { it.copy(account = Account(), accountLoading = false) }
+                showError("账号状态读取失败", error)
+            }
         }
     }
 
@@ -273,6 +277,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun logout() {
         loginJob?.cancel()
+        accountJob?.cancel()
         container.credentialStore.clear()
         viewModelScope.launch { container.creatorSelectionRepository.replaceAll(emptyList()) }
         _uiState.update {
@@ -736,6 +741,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         loginJob?.cancel()
+        accountJob?.cancel()
         homeLoadJob?.cancel()
         progressJob?.cancel()
         mediaResolveJob?.cancel()

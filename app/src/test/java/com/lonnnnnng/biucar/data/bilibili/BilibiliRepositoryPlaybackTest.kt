@@ -75,6 +75,26 @@ class BilibiliRepositoryPlaybackTest {
         assertEquals(listOf("P2 · 第二首"), tracks.map { it.pageTitle })
     }
 
+    @Test
+    fun `关键词搜索UP主解析名称UID和头像`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"code":0,"data":{"numResults":1,"result":[{"mid":12345,"uname":"<em class=\"keyword\">测试</em>UP","upic":"//i.test/avatar.png"}]}}""",
+            ),
+        )
+
+        val result = repository.searchCreators("测试UP")
+
+        assertEquals(1, result.items.size)
+        assertEquals(12345L, result.items.single().mid)
+        assertEquals("测试UP", result.items.single().name)
+        assertEquals("https://i.test/avatar.png", result.items.single().faceUrl)
+        assertEquals(false, result.hasMore)
+        val request = server.takeRequest()
+        assertEquals("bili_user", request.requestUrl?.queryParameter("search_type"))
+        assertEquals("测试UP", request.requestUrl?.queryParameter("keyword"))
+    }
+
     private fun enqueueVideoDetail(pageCount: Int) {
         val pages = listOf(
             """{"cid":101,"page":1,"part":"第一首","duration":180}""",

@@ -66,6 +66,9 @@ data class CarUiState(
     val homeHasMore: Map<Long, Boolean> = emptyMap(),
     val homeLoading: Boolean = false,
     val availableCreators: List<Creator> = emptyList(),
+    val creatorSearchKeyword: String = "",
+    val creatorSearchResults: List<Creator> = emptyList(),
+    val creatorSearchLoading: Boolean = false,
     val draftCreatorMids: Set<Long> = emptySet(),
     val sourcesLoading: Boolean = false,
     val favoriteFolders: Map<FavoriteGroup, List<FavoriteFolder>> = emptyMap(),
@@ -304,6 +307,26 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateCreatorSearchKeyword(keyword: String) {
+        _uiState.update { it.copy(creatorSearchKeyword = keyword) }
+    }
+
+    fun searchCreators() {
+        val keyword = _uiState.value.creatorSearchKeyword.trim()
+        if (keyword.isBlank() || _uiState.value.creatorSearchLoading) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(creatorSearchLoading = true, creatorSearchResults = emptyList()) }
+            runCatching { container.bilibiliRepository.searchCreators(keyword) }
+                .onSuccess { result ->
+                    _uiState.update { it.copy(creatorSearchResults = result.items, creatorSearchLoading = false) }
+                }
+                .onFailure { error ->
+                    _uiState.update { it.copy(creatorSearchLoading = false) }
+                    showError("UP 主搜索失败", error)
+                }
+        }
+    }
+
     fun toggleCreator(mid: Long) {
         _uiState.update { state ->
             val updated = state.draftCreatorMids.toMutableSet().apply { if (!add(mid)) remove(mid) }
@@ -313,7 +336,9 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveCreatorSelection() {
         val state = _uiState.value
-        val selected = state.availableCreators.filter { it.mid in state.draftCreatorMids }
+        // long: 已保存但尚未刷新关注列表的 UP 也必须保留，否则用户只打开页面点击保存会误清空首页来源。
+        val candidates = (state.selectedCreators + state.availableCreators + state.creatorSearchResults).distinctBy(Creator::mid)
+        val selected = candidates.filter { it.mid in state.draftCreatorMids }
         viewModelScope.launch {
             container.creatorSelectionRepository.replaceAll(selected)
             _uiState.update { it.copy(message = "首页来源已保存") }

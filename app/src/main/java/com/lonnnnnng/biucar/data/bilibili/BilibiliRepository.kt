@@ -71,6 +71,29 @@ class BilibiliRepository(
         return result.distinctBy(Creator::mid)
     }
 
+    suspend fun searchCreators(keyword: String, page: Int = 1): Page<Creator> {
+        val normalizedKeyword = keyword.trim()
+        require(normalizedKeyword.isNotBlank()) { "请输入 UP 主名称或 UID" }
+        val normalizedPage = page.coerceAtLeast(1)
+        val data = request(
+            "/x/web-interface/search/type",
+            mapOf(
+                "search_type" to "bili_user",
+                "keyword" to normalizedKeyword,
+                "page" to normalizedPage,
+                "pagesize" to CREATOR_SEARCH_PAGE_SIZE,
+            ),
+        ).successData()
+        val results = data.optJSONArray("result").objects().mapNotNull { item ->
+            val mid = item.optLongOrNull("mid")?.takeIf { it > 0L } ?: return@mapNotNull null
+            val name = plainText(item.optString("uname").ifBlank { item.optString("username") })
+                .ifBlank { "UID $mid" }
+            Creator(mid, name, httpsUrl(item.optString("upic").ifBlank { item.optString("face") }))
+        }.distinctBy(Creator::mid)
+        val total = data.optInt("numResults", data.optInt("total", 0)).coerceAtLeast(0)
+        return Page(results, normalizedPage, results.isNotEmpty() && normalizedPage * CREATOR_SEARCH_PAGE_SIZE < total)
+    }
+
     suspend fun creatorVideos(creator: Creator, page: Int = 1): Page<Video> {
         val normalizedPage = page.coerceAtLeast(1)
         val data = request(
@@ -371,6 +394,7 @@ class BilibiliRepository(
     private companion object {
         val API_BASE = "https://api.bilibili.com".toHttpUrl()
         const val FOLLOWING_PAGE_SIZE = 50
+        const val CREATOR_SEARCH_PAGE_SIZE = 20
         const val VIDEO_PAGE_SIZE = 20
         const val FAVORITE_PAGE_SIZE = 20
         const val HISTORY_PAGE_SIZE = 20

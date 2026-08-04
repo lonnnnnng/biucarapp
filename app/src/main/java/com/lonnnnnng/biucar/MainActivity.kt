@@ -49,6 +49,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
@@ -62,6 +63,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -69,6 +71,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -391,9 +394,44 @@ private fun SourcesScreen(state: CarUiState, viewModel: CarViewModel) {
             }
         }
         Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedTextField(
+                value = state.creatorSearchKeyword,
+                onValueChange = viewModel::updateCreatorSearchKeyword,
+                modifier = Modifier.weight(1f).height(50.dp),
+                singleLine = true,
+                placeholder = { Text("搜索 UP 主名称或 UID", fontSize = 13.sp, color = CarMuted) },
+                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = CarMuted, modifier = Modifier.size(18.dp)) },
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = CarSurfaceRaised,
+                    unfocusedContainerColor = CarSurfaceRaised,
+                    focusedTextColor = CarText,
+                    unfocusedTextColor = CarText,
+                    focusedIndicatorColor = CarGreen,
+                    unfocusedIndicatorColor = CarDivider,
+                    cursorColor = CarGreen,
+                ),
+            )
+            IconButton(
+                onClick = viewModel::searchCreators,
+                enabled = state.creatorSearchKeyword.isNotBlank() && !state.creatorSearchLoading,
+            ) {
+                if (state.creatorSearchLoading) {
+                    CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                } else {
+                    Icon(Icons.Rounded.Search, contentDescription = "搜索 UP 主", tint = CarGreen)
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
         HorizontalDivider(color = CarDivider)
         LazyColumn(Modifier.fillMaxSize()) {
-            items(state.availableCreators, key = Creator::mid) { creator ->
+            val candidates = (state.selectedCreators + state.availableCreators + state.creatorSearchResults).distinctBy(Creator::mid)
+            items(candidates, key = Creator::mid) { creator ->
                 val selected = creator.mid in state.draftCreatorMids
                 Row(
                     Modifier.fillMaxWidth().height(52.dp).clickable { viewModel.toggleCreator(creator.mid) }.padding(horizontal = 8.dp),
@@ -413,7 +451,7 @@ private fun SourcesScreen(state: CarUiState, viewModel: CarViewModel) {
                 HorizontalDivider(color = CarDivider)
             }
             if (state.sourcesLoading) item { LoadingRow() }
-            if (state.availableCreators.isEmpty() && !state.sourcesLoading) item { EmptyInline("点击刷新读取完整关注列表") }
+            if (candidates.isEmpty() && !state.sourcesLoading && !state.creatorSearchLoading) item { EmptyInline("点击刷新读取关注列表，或搜索 UP 主") }
         }
     }
 }
@@ -708,10 +746,6 @@ private fun VideoRow(video: Video, onPlay: () -> Unit) {
         Modifier.fillMaxWidth().height(62.dp).clickable(onClick = onPlay).padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Surface(color = CarSurfaceRaised, shape = RoundedCornerShape(4.dp), modifier = Modifier.size(width = 78.dp, height = 48.dp)) {
-            Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = CarGreen, modifier = Modifier.padding(12.dp))
-        }
-        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(video.title, color = CarText, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(3.dp))

@@ -12,8 +12,8 @@ android {
         applicationId = "com.lonnnnnng.biucar"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -23,8 +23,24 @@ android {
         buildConfig = true
     }
 
+    // long：正式包必须使用本机受保护的发布密钥，避免把 debug 证书分发给车机用户。
+    signingConfigs {
+        create("release") {
+            val storePath = providers.gradleProperty("biucarReleaseStoreFile").orNull
+                ?: error("缺少 biucarReleaseStoreFile，请配置本机车机发布签名")
+            storeFile = file(storePath)
+            storePassword = providers.gradleProperty("biucarReleaseStorePassword").orNull
+                ?: error("缺少 biucarReleaseStorePassword，请配置本机车机发布签名")
+            keyAlias = providers.gradleProperty("biucarReleaseKeyAlias").orNull
+                ?: error("缺少 biucarReleaseKeyAlias，请配置本机车机发布签名")
+            keyPassword = providers.gradleProperty("biucarReleaseKeyPassword").orNull
+                ?: error("缺少 biucarReleaseKeyPassword，请配置本机车机发布签名")
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

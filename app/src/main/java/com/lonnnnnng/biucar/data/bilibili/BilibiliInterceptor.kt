@@ -24,9 +24,10 @@ class BilibiliInterceptor(private val credentialStore: CredentialStore) : Interc
         host == suffix || host.endsWith(".$suffix")
     }
 
-    private companion object {
+    internal companion object {
         val OWNED_SUFFIXES = setOf("bilibili.com", "bilivideo.com", "bilivideo.cn", "hdslb.com")
-        const val USER_AGENT =
-            "Mozilla/5.0 (Linux; Android 8.1; BiuCar) AppleWebKit/537.36 Chrome/61.0 Mobile Safari/537.36"
+        // long: Bilibili 部分 bilivideo CDN 会拒绝旧版或 Mobile UA；网络身份与系统 WebView 解耦，确保 Android 8.1 车机仍能读取 DASH 音频。
+        internal const val USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36"
     }
 }

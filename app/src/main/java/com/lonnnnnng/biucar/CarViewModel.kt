@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -97,6 +98,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         override fun onIsPlayingChanged(isPlaying: Boolean) = syncPlayerState()
         override fun onPlaybackStateChanged(playbackState: Int) = syncPlayerState()
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = syncPlayerState()
+        override fun onPlayerError(error: PlaybackException) = showError("播放失败", error)
     }
 
     init {

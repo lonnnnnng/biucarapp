@@ -5,6 +5,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -17,7 +18,7 @@ import com.lonnnnnng.biucar.data.model.EXTRA_PAGE_TITLE
 import com.lonnnnnng.biucar.data.model.EXTRA_RESOURCE_TITLE
 import com.lonnnnnng.biucar.data.model.EXTRA_STREAM_URL
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Dispatchers.Main
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -26,7 +27,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class CarPlaybackService : MediaSessionService() {
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // long: Media3 要求 Player 只在创建它的主线程访问；网络缓存和 Room 自己会切换到后台线程，服务协程因此必须以主线程为调度基准。
+    private val serviceScope = CoroutineScope(SupervisorJob() + Main.immediate)
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
     private var progressJob: Job? = null
@@ -55,7 +57,9 @@ class CarPlaybackService : MediaSessionService() {
     @UnstableApi
     override fun onCreate() {
         super.onCreate()
-        val mediaSourceFactory = DefaultMediaSourceFactory(OkHttpDataSource.Factory(carContainer.httpClient))
+        // long: DefaultDataSource 会把离线历史的 file:// 交给 FileDataSource，把在线 DASH 交给带 Bilibili 请求头的 OkHttpDataSource。
+        val dataSourceFactory = DefaultDataSource.Factory(this, OkHttpDataSource.Factory(carContainer.httpClient))
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
         val exoPlayer = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
             .build()
@@ -125,9 +129,11 @@ class CarPlaybackService : MediaSessionService() {
     private fun persistProgress() {
         val activePlayer = player ?: return
         val mediaId = activePlayer.currentMediaItem?.mediaId?.takeIf(String::isNotBlank) ?: return
-        val duration = activePlayer.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: activePlayer.currentPosition
+        // long: 先在主线程读取 Player 快照，再把纯数据交给历史仓库，避免后台协程触发 Media3 线程断言。
+        val positionMs = activePlayer.currentPosition
+        val duration = activePlayer.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: positionMs
         serviceScope.launch {
-            carContainer.playbackHistoryRepository.updateProgress(mediaId, activePlayer.currentPosition, duration)
+            carContainer.playbackHistoryRepository.updateProgress(mediaId, positionMs, duration)
         }
     }
 

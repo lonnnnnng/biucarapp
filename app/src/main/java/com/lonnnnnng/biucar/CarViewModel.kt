@@ -31,6 +31,7 @@ import com.lonnnnnng.biucar.data.model.QrPollResult
 import com.lonnnnnng.biucar.data.model.Video
 import com.lonnnnnng.biucar.playback.CarPlaybackService
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,7 +67,7 @@ data class CarUiState(
     val homeVideos: Map<Long, List<Video>> = emptyMap(),
     val homePages: Map<Long, Int> = emptyMap(),
     val homeHasMore: Map<Long, Boolean> = emptyMap(),
-    val homeLoading: Boolean = false,
+    val homeLoadingMid: Long? = null,
     val availableCreators: List<Creator> = emptyList(),
     val creatorSourceTab: CreatorSourceTab = CreatorSourceTab.FOLLOWING,
     val creatorSearchKeyword: String = "",
@@ -110,6 +111,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(CarUiState())
     val uiState: StateFlow<CarUiState> = _uiState.asStateFlow()
     private var loginJob: Job? = null
+    private var homeLoadJob: Job? = null
     private var progressJob: Job? = null
     private var mediaResolveJob: Job? = null
     private var controller: MediaController? = null
@@ -120,7 +122,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
 
     private val playerListener = object : Player.Listener {
         override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) = syncPlayerState()
-        override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) = syncPlayerState()
+        override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) = syncPlayerState(includeQueue = true)
         override fun onIsPlayingChanged(isPlaying: Boolean) = syncPlayerState()
         override fun onPlaybackStateChanged(playbackState: Int) = syncPlayerState()
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = syncPlayerState()
@@ -134,7 +136,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
                     controller = mediaController
                     mediaController.addListener(playerListener)
                     _uiState.update { it.copy(controllerReady = true) }
-                    syncPlayerState()
+                    syncPlayerState(includeQueue = true)
                     startProgressTicker()
                 }.onFailure { error -> showError("播放器连接失败", error) }
             },
@@ -288,28 +290,35 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadHome(mid: Long? = null, reset: Boolean = false) {
-        if (_uiState.value.homeLoading) return
         val targetMid = mid ?: _uiState.value.selectedHomeMid ?: return
         val creator = _uiState.value.selectedCreators.firstOrNull { it.mid == targetMid } ?: return
+        if (homeLoadJob?.isActive == true) {
+            if (_uiState.value.homeLoadingMid == targetMid) return
+            // long: 快速切换 UP 时取消旧请求，让有限网络并发优先服务当前可见页面，旧结果不会覆盖新 Tab 的加载状态。
+            homeLoadJob?.cancel()
+        }
         val page = if (reset) 1 else (_uiState.value.homePages[targetMid] ?: 0) + 1
-        viewModelScope.launch {
-            _uiState.update { it.copy(homeLoading = true) }
-            runCatching { container.bilibiliRepository.creatorVideos(creator, page) }
-                .onSuccess { result ->
-                    _uiState.update { state ->
-                        val previous = if (reset) emptyList() else state.homeVideos[targetMid].orEmpty()
-                        state.copy(
-                            homeVideos = state.homeVideos + (targetMid to (previous + result.items).distinctBy(Video::bvid)),
-                            homePages = state.homePages + (targetMid to result.page),
-                            homeHasMore = state.homeHasMore + (targetMid to result.hasMore),
-                            homeLoading = false,
-                        )
-                    }
+        _uiState.update { it.copy(homeLoadingMid = targetMid) }
+        homeLoadJob = viewModelScope.launch {
+            try {
+                val result = container.bilibiliRepository.creatorVideos(creator, page)
+                _uiState.update { state ->
+                    val previous = if (reset) emptyList() else state.homeVideos[targetMid].orEmpty()
+                    state.copy(
+                        homeVideos = state.homeVideos + (targetMid to (previous + result.items).distinctBy(Video::bvid)),
+                        homePages = state.homePages + (targetMid to result.page),
+                        homeHasMore = state.homeHasMore + (targetMid to result.hasMore),
+                        homeLoadingMid = state.homeLoadingMid.takeUnless { it == targetMid },
+                    )
                 }
-                .onFailure { error ->
-                    _uiState.update { it.copy(homeLoading = false) }
-                    showError("首页加载失败", error)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _uiState.update { state ->
+                    if (state.homeLoadingMid == targetMid) state.copy(homeLoadingMid = null) else state
                 }
+                showError("首页加载失败", error)
+            }
         }
     }
 
@@ -393,7 +402,10 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
                 .onSuccess { folders ->
                     _uiState.update { it.copy(favoriteFolders = it.favoriteFolders + (group to folders), favoriteLoading = false) }
                     // long: 手动刷新收藏夹时保留当前目录，避免驾驶途中刷新后视线和操作焦点突然跳回第一项。
-                    selectFavoriteFolder(folders.firstOrNull { it.id == selectedFolderId } ?: folders.firstOrNull())
+                    selectFavoriteFolder(
+                        folders.firstOrNull { it.id == selectedFolderId } ?: folders.firstOrNull(),
+                        forceReload = forceRefresh,
+                    )
                 }
                 .onFailure { error ->
                     _uiState.update { it.copy(favoriteLoading = false) }
@@ -406,7 +418,8 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         loadFavoriteFolders(group, forceRefresh = true)
     }
 
-    fun selectFavoriteFolder(folder: FavoriteFolder?) {
+    fun selectFavoriteFolder(folder: FavoriteFolder?, forceReload: Boolean = false) {
+        if (!forceReload && folder != null && folder == _uiState.value.selectedFavoriteFolder && _uiState.value.favoriteVideos.isNotEmpty()) return
         _uiState.update {
             it.copy(selectedFavoriteFolder = folder, favoriteVideos = emptyList(), favoritePage = 0, favoriteHasMore = false)
         }
@@ -678,11 +691,24 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun syncPlayerState() {
+    private fun syncPlayerState(includeQueue: Boolean = false) {
         val active = controller ?: return
         val metadata = active.mediaMetadata
         val currentMediaId = active.currentMediaItem?.mediaId
         _uiState.update { state ->
+            // long: 播放队列只在 Timeline 变化时重建；进度定时器每秒只同步轻量状态，避免对 200P 合集持续分配大列表。
+            val queue = if (includeQueue) {
+                (0 until active.mediaItemCount).map { index ->
+                    val item = active.getMediaItemAt(index)
+                    PlaybackQueueItem(
+                        mediaId = item.mediaId,
+                        title = item.mediaMetadata.title?.toString().orEmpty().ifBlank { "未命名分 P" },
+                        artist = item.mediaMetadata.artist?.toString().orEmpty(),
+                    )
+                }
+            } else {
+                state.playbackQueue
+            }
             state.copy(
                 nowTitle = metadata.title?.toString()?.takeIf(String::isNotBlank) ?: "尚未播放",
                 nowArtist = metadata.artist?.toString().orEmpty(),
@@ -692,14 +718,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
                 isPlaying = active.isPlaying,
                 positionMs = active.currentPosition.coerceAtLeast(0L),
                 durationMs = active.duration.takeIf { duration -> duration != C.TIME_UNSET && duration > 0L } ?: 0L,
-                playbackQueue = (0 until active.mediaItemCount).map { index ->
-                    val item = active.getMediaItemAt(index)
-                    PlaybackQueueItem(
-                        mediaId = item.mediaId,
-                        title = item.mediaMetadata.title?.toString().orEmpty().ifBlank { "未命名分 P" },
-                        artist = item.mediaMetadata.artist?.toString().orEmpty(),
-                    )
-                },
+                playbackQueue = queue,
                 currentQueueIndex = active.currentMediaItemIndex,
                 repeatMode = active.repeatMode,
                 shuffleEnabled = active.shuffleModeEnabled,
@@ -713,6 +732,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         loginJob?.cancel()
+        homeLoadJob?.cancel()
         progressJob?.cancel()
         mediaResolveJob?.cancel()
         controller?.removeListener(playerListener)

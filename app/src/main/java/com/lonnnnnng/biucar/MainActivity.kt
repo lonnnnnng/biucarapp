@@ -59,6 +59,7 @@ import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -71,12 +72,14 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -236,6 +239,7 @@ private fun NavigationItem(label: String, icon: androidx.compose.ui.graphics.vec
 
 @Composable
 private fun HomeScreen(state: CarUiState, viewModel: CarViewModel) {
+    val homeLoading = state.homeLoadingMid == state.selectedHomeMid
     Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 12.dp)) {
         Row(
             Modifier.fillMaxWidth().height(38.dp),
@@ -245,10 +249,10 @@ private fun HomeScreen(state: CarUiState, viewModel: CarViewModel) {
             Spacer(Modifier.weight(1f))
             IconButton(
                 onClick = { viewModel.loadHome(reset = true) },
-                enabled = state.selectedHomeMid != null && !state.homeLoading,
+                enabled = state.selectedHomeMid != null && !homeLoading,
                 modifier = Modifier.size(38.dp),
             ) {
-                if (state.homeLoading) {
+                if (homeLoading) {
                     CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
                 } else {
                     Icon(Icons.Rounded.Refresh, contentDescription = "刷新首页", tint = CarMuted, modifier = Modifier.size(22.dp))
@@ -280,7 +284,7 @@ private fun HomeScreen(state: CarUiState, viewModel: CarViewModel) {
         VideoList(
             listIdentity = "home:${state.selectedHomeMid}",
             videos = videos,
-            loading = state.homeLoading,
+            loading = homeLoading,
             hasMore = state.homeHasMore[state.selectedHomeMid] == true,
             onPlay = viewModel::playVideo,
             onLoadMore = { viewModel.loadHome() },
@@ -553,6 +557,39 @@ private fun LikedScreen(state: CarUiState, viewModel: CarViewModel) {
 
 @Composable
 private fun AccountScreen(state: CarUiState, viewModel: CarViewModel) {
+    var confirmLogout by remember { mutableStateOf(false) }
+    if (confirmLogout) {
+        AlertDialog(
+            onDismissRequest = { confirmLogout = false },
+            containerColor = CarSurfaceRaised,
+            title = { Text("退出登录？", color = CarText) },
+            text = {
+                Text(
+                    "将清除 Bilibili 登录状态和首页 UP 配置，本地播放历史与“我喜欢的”仍会保留。",
+                    color = CarMuted,
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmLogout = false
+                        viewModel.logout()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD95555), contentColor = Color.White),
+                    shape = RoundedCornerShape(5.dp),
+                ) {
+                    Text("退出")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmLogout = false }) {
+                    Text("取消", color = CarText)
+                }
+            },
+        )
+    }
     if (state.accountLoading) {
         LoadingRow()
         return
@@ -576,7 +613,7 @@ private fun AccountScreen(state: CarUiState, viewModel: CarViewModel) {
             }
             Spacer(Modifier.width(8.dp))
             Button(
-                onClick = viewModel::logout,
+                onClick = { confirmLogout = true },
                 colors = ButtonDefaults.buttonColors(containerColor = CarSurfaceRaised, contentColor = CarText),
                 shape = RoundedCornerShape(5.dp),
             ) {

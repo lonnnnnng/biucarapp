@@ -28,11 +28,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -43,7 +45,6 @@ import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
-import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
@@ -55,8 +56,6 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material.icons.rounded.QueueMusic
-import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -77,7 +76,10 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -101,6 +103,7 @@ import java.util.Date
 import java.util.Locale
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
 
 private val CarBackground = Color(0xFF0B0F0D)
@@ -169,6 +172,22 @@ private fun CarApp(state: CarUiState, viewModel: CarViewModel) {
                         RootPage.LIBRARY -> LibraryScreen(state, viewModel)
                         RootPage.PLAYER -> PlayerScreen(state, viewModel)
                     }
+                    if (state.resolvingMedia) {
+                        Surface(
+                            color = CarSurfaceRaised,
+                            shape = RoundedCornerShape(5.dp),
+                            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+                        ) {
+                            Row(
+                                Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("正在加载音频", color = CarText, fontSize = 12.sp)
+                            }
+                        }
+                    }
                 }
                 if (state.rootPage != RootPage.PLAYER) MiniPlayer(state, viewModel)
             }
@@ -194,7 +213,6 @@ private fun CarNavigation(selected: RootPage, onSelect: (RootPage) -> Unit) {
         Spacer(Modifier.height(8.dp))
         NavigationItem("播放", Icons.Rounded.Equalizer, selected == RootPage.PLAYER) { onSelect(RootPage.PLAYER) }
         Spacer(Modifier.weight(1f))
-        Text("1024 × 600", color = CarMuted, fontSize = 11.sp)
     }
 }
 
@@ -219,7 +237,25 @@ private fun NavigationItem(label: String, icon: androidx.compose.ui.graphics.vec
 @Composable
 private fun HomeScreen(state: CarUiState, viewModel: CarViewModel) {
     Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 12.dp)) {
-        PageHeader("首页", "仅显示已配置 UP 的最新投稿")
+        Row(
+            Modifier.fillMaxWidth().height(38.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("首页", color = CarText, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.weight(1f))
+            IconButton(
+                onClick = { viewModel.loadHome(reset = true) },
+                enabled = state.selectedHomeMid != null && !state.homeLoading,
+                modifier = Modifier.size(38.dp),
+            ) {
+                if (state.homeLoading) {
+                    CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                } else {
+                    Icon(Icons.Rounded.Refresh, contentDescription = "刷新首页", tint = CarMuted, modifier = Modifier.size(22.dp))
+                }
+            }
+        }
+        Spacer(Modifier.height(4.dp))
         if (state.selectedCreators.isEmpty()) {
             EmptyState(
                 title = "首页暂未配置内容",
@@ -242,6 +278,7 @@ private fun HomeScreen(state: CarUiState, viewModel: CarViewModel) {
         Spacer(Modifier.height(8.dp))
         val videos = state.homeVideos[state.selectedHomeMid].orEmpty()
         VideoList(
+            listIdentity = "home:${state.selectedHomeMid}",
             videos = videos,
             loading = state.homeLoading,
             hasMore = state.homeHasMore[state.selectedHomeMid] == true,
@@ -265,6 +302,25 @@ private fun LibraryScreen(state: CarUiState, viewModel: CarViewModel) {
                 LibraryTab("我喜欢的", LibrarySection.LIKED, state.librarySection, viewModel)
                 LibraryTab("首页 UP", LibrarySection.SOURCES, state.librarySection, viewModel)
                 LibraryTab("账号", LibrarySection.ACCOUNT, state.librarySection, viewModel)
+            }
+            Spacer(Modifier.weight(1f))
+            val refreshGroup = when (state.librarySection) {
+                LibrarySection.CREATED -> FavoriteGroup.CREATED
+                LibrarySection.COLLECTED -> FavoriteGroup.COLLECTED
+                else -> null
+            }
+            if (refreshGroup != null) {
+                IconButton(
+                    onClick = { viewModel.refreshFavoriteFolders(refreshGroup) },
+                    enabled = !state.favoriteLoading,
+                    modifier = Modifier.size(42.dp),
+                ) {
+                    if (state.favoriteLoading) {
+                        CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                    } else {
+                        Icon(Icons.Rounded.Refresh, contentDescription = "刷新收藏夹", tint = CarMuted, modifier = Modifier.size(22.dp))
+                    }
+                }
             }
         }
         Spacer(Modifier.height(10.dp))
@@ -306,6 +362,7 @@ private fun FavoriteScreen(state: CarUiState, group: FavoriteGroup, viewModel: C
         Spacer(Modifier.width(12.dp))
         VideoList(
             modifier = Modifier.weight(1f),
+            listIdentity = "favorite:${group}:${state.selectedFavoriteFolder?.id}",
             videos = state.favoriteVideos,
             loading = state.favoriteLoading,
             hasMore = state.favoriteHasMore,
@@ -361,6 +418,7 @@ private fun HistoryScreen(state: CarUiState, viewModel: CarViewModel) {
             LoginRequired { viewModel.selectLibrary(LibrarySection.ACCOUNT) }
         } else {
             VideoList(
+                listIdentity = "online-history",
                 videos = state.onlineHistory,
                 loading = state.onlineHistoryLoading,
                 hasMore = state.historyCursor != null,
@@ -512,12 +570,6 @@ private fun AccountScreen(state: CarUiState, viewModel: CarViewModel) {
                 Text(state.account.name, color = CarText, fontSize = 25.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
                 Text("UID ${state.account.mid}", color = CarMuted, fontSize = 13.sp)
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Wifi, contentDescription = null, tint = CarGreen, modifier = Modifier.size(17.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("账号状态已由 Bilibili 服务端确认", color = CarMuted, fontSize = 12.sp)
-                }
             }
             IconButton(onClick = viewModel::refreshAccount, modifier = Modifier.size(52.dp)) {
                 Icon(Icons.Rounded.Refresh, contentDescription = "刷新账号", tint = CarMuted)
@@ -576,6 +628,10 @@ private fun AccountScreen(state: CarUiState, viewModel: CarViewModel) {
 
 @Composable
 private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
+    val currentMediaId = state.playbackQueue.getOrNull(state.currentQueueIndex)?.mediaId
+    // long: 拖动期间只更新本地预览，松手后再执行一次 Seek，避免旧车机连续重建网络缓冲造成卡顿和播放失败。
+    var pendingSeekMs by remember(currentMediaId) { mutableLongStateOf(-1L) }
+    val displayedPositionMs = pendingSeekMs.takeIf { it >= 0L } ?: state.positionMs
     Row(
         Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -589,7 +645,7 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
             ) {
                 Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.QueueMusic, contentDescription = null, tint = CarGreen, modifier = Modifier.size(20.dp))
+                        Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null, tint = CarGreen, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(7.dp))
                         Text("播放列表", color = CarText, fontSize = 18.sp, fontWeight = FontWeight.Medium)
                         Spacer(Modifier.weight(1f))
@@ -646,13 +702,18 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
             Text(state.nowArtist.ifBlank { "Biu Car" }, color = CarMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(28.dp))
             Slider(
-                value = state.positionMs.coerceAtMost(state.durationMs).toFloat(),
-                onValueChange = { viewModel.seekTo(it.toLong()) },
+                value = displayedPositionMs.coerceAtMost(state.durationMs).toFloat(),
+                onValueChange = { pendingSeekMs = it.toLong() },
+                onValueChangeFinished = {
+                    pendingSeekMs.takeIf { it >= 0L }?.let(viewModel::seekTo)
+                    pendingSeekMs = -1L
+                },
                 valueRange = 0f..state.durationMs.coerceAtLeast(1L).toFloat(),
+                enabled = state.controllerReady && state.durationMs > 0L,
                 colors = SliderDefaults.colors(thumbColor = CarGreen, activeTrackColor = CarGreen, inactiveTrackColor = CarDivider),
             )
             Row(Modifier.fillMaxWidth()) {
-                Text(formatDuration(state.positionMs), color = CarMuted, fontSize = 12.sp)
+                Text(formatDuration(displayedPositionMs), color = CarMuted, fontSize = 12.sp)
                 Spacer(Modifier.weight(1f))
                 Text(formatDuration(state.durationMs), color = CarMuted, fontSize = 12.sp)
             }
@@ -754,10 +815,6 @@ private fun MiniPlayer(state: CarUiState, viewModel: CarViewModel) {
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Surface(color = CarSurfaceRaised, shape = RoundedCornerShape(5.dp), modifier = Modifier.size(44.dp)) {
-            Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = CarGreen, modifier = Modifier.padding(10.dp))
-        }
-        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(state.nowTitle, color = CarText, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(state.nowArtist, color = CarMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -772,6 +829,7 @@ private fun MiniPlayer(state: CarUiState, viewModel: CarViewModel) {
 
 @Composable
 private fun VideoList(
+    listIdentity: String,
     videos: List<Video>,
     loading: Boolean,
     hasMore: Boolean,
@@ -780,17 +838,23 @@ private fun VideoList(
     emptyText: String,
     modifier: Modifier = Modifier,
 ) {
-    LazyColumn(modifier.fillMaxSize()) {
-        items(videos, key = Video::bvid) { video ->
+    // long: 每个 UP、收藏夹和历史列表维护独立滚动位置，切换数据源时不会从旧列表的中间位置开始加载。
+    val listState = androidx.compose.runtime.key(listIdentity) { rememberLazyListState() }
+    LaunchedEffect(listState, videos.size, loading, hasMore) {
+        if (videos.isEmpty() || loading || !hasMore) return@LaunchedEffect
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
+            .distinctUntilChanged()
+            .collect { lastVisibleIndex ->
+                // long: 内容接近列表末尾时自动请求下一页，减少驾驶过程中对小型“加载更多”按钮的精确点击。
+                if (lastVisibleIndex >= videos.lastIndex - 2) onLoadMore()
+            }
+    }
+    LazyColumn(modifier.fillMaxSize(), state = listState) {
+        items(videos, key = { video -> "${video.bvid}:${video.cid ?: 0L}" }) { video ->
             VideoRow(video) { onPlay(video) }
             HorizontalDivider(color = CarDivider)
         }
         if (loading) item { LoadingRow() }
-        if (!loading && hasMore) item {
-            Box(Modifier.fillMaxWidth().height(48.dp).clickable(onClick = onLoadMore), contentAlignment = Alignment.Center) {
-                Text("加载更多", color = CarGreen, fontSize = 13.sp)
-            }
-        }
         if (!loading && videos.isEmpty()) item { EmptyInline(emptyText) }
     }
 }
@@ -855,15 +919,6 @@ private fun LikedRow(item: LikedMediaEntity, onPlay: () -> Unit) {
         Text(formatDate(item.likedAtEpochMs / 1_000L), color = CarMuted, fontSize = 11.sp)
         Spacer(Modifier.width(12.dp))
         Icon(Icons.Rounded.PlayArrow, contentDescription = "播放喜欢内容", tint = CarGreen, modifier = Modifier.size(28.dp))
-    }
-}
-
-@Composable
-private fun PageHeader(title: String, subtitle: String) {
-    Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), verticalAlignment = Alignment.Bottom) {
-        Text(title, color = CarText, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.width(12.dp))
-        Text(subtitle, color = CarMuted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 2.dp))
     }
 }
 

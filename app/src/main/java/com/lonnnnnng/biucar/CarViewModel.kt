@@ -377,25 +377,33 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun loadFavoriteFolders(group: FavoriteGroup) {
+    fun loadFavoriteFolders(group: FavoriteGroup, forceRefresh: Boolean = false) {
         val state = _uiState.value
         if (!state.account.isLoggedIn || state.account.mid <= 0L || state.favoriteLoading) return
-        if (state.favoriteFolders[group] != null) {
-            selectFavoriteFolder(state.favoriteFolders[group]?.firstOrNull())
+        if (!forceRefresh && state.favoriteFolders[group] != null) {
+            val selected = state.selectedFavoriteFolder?.takeIf { it.group == group }
+                ?: state.favoriteFolders[group]?.firstOrNull()
+            selectFavoriteFolder(selected)
             return
         }
+        val selectedFolderId = state.selectedFavoriteFolder?.takeIf { it.group == group }?.id
         viewModelScope.launch {
             _uiState.update { it.copy(favoriteLoading = true) }
             runCatching { container.bilibiliRepository.favoriteFolders(state.account.mid, group) }
                 .onSuccess { folders ->
                     _uiState.update { it.copy(favoriteFolders = it.favoriteFolders + (group to folders), favoriteLoading = false) }
-                    selectFavoriteFolder(folders.firstOrNull())
+                    // long: 手动刷新收藏夹时保留当前目录，避免驾驶途中刷新后视线和操作焦点突然跳回第一项。
+                    selectFavoriteFolder(folders.firstOrNull { it.id == selectedFolderId } ?: folders.firstOrNull())
                 }
                 .onFailure { error ->
                     _uiState.update { it.copy(favoriteLoading = false) }
                     showError("收藏夹加载失败", error)
                 }
         }
+    }
+
+    fun refreshFavoriteFolders(group: FavoriteGroup) {
+        loadFavoriteFolders(group, forceRefresh = true)
     }
 
     fun selectFavoriteFolder(folder: FavoriteFolder?) {

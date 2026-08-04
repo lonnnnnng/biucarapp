@@ -596,7 +596,8 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
             )
         }
         Spacer(Modifier.width(24.dp))
-        Column(Modifier.weight(1f)) {
+        // long: 单 P 以封面 1、播放器 2 的比例突出播放信息；多 P 仍保持列表与播放器等宽，保证分 P 标题可读。
+        Column(Modifier.weight(if (state.isMultiPage) 1f else 2f)) {
             Text(queueTitleForDisplay(state.nowTitle), color = CarText, fontSize = 25.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(7.dp))
             Text(state.nowArtist.ifBlank { "Biu Car" }, color = CarMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)

@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -82,6 +83,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -588,7 +590,10 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                 }
             }
         } else {
-            ArtworkPlaceholder(state.nowArtworkUrl)
+            ArtworkPlaceholder(
+                url = state.nowArtworkUrl,
+                modifier = Modifier.weight(1f).aspectRatio(1f),
+            )
         }
         Spacer(Modifier.width(24.dp))
         Column(Modifier.weight(1f)) {
@@ -668,7 +673,7 @@ private fun playbackOrderLabel(mode: Int, shuffleEnabled: Boolean): String = whe
 private fun queueTitleForDisplay(title: String): String = title.substringAfter(" · ", title)
 
 @Composable
-private fun ArtworkPlaceholder(url: String) {
+private fun ArtworkPlaceholder(url: String, modifier: Modifier = Modifier) {
     val bitmap by androidx.compose.runtime.produceState<Bitmap?>(initialValue = null, key1 = url) {
         value = if (url.isBlank()) null else withContext(Dispatchers.IO) {
             runCatching { URL(url).openStream().use(BitmapFactory::decodeStream) }.getOrNull()
@@ -677,13 +682,15 @@ private fun ArtworkPlaceholder(url: String) {
     Surface(
         color = CarSurfaceRaised,
         shape = RoundedCornerShape(6.dp),
-        modifier = Modifier.size(292.dp),
+        // long: 单 P 封面与右侧播放器各占一半宽度，封面维持正方形并裁剪填充，避免 16:9 素材被直接拉伸。
+        modifier = modifier,
     ) {
         if (bitmap != null) {
             Image(
                 bitmap = bitmap!!.asImageBitmap(),
                 contentDescription = "当前音频封面",
                 modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
             )
         }
     }

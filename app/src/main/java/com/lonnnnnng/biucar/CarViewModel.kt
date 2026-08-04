@@ -180,7 +180,13 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiState.update { it.copy(accountLoading = true) }
             runCatching { container.bilibiliRepository.account() }
-                .onSuccess { account -> _uiState.update { it.copy(account = account, accountLoading = false) } }
+                .onSuccess { account ->
+                    _uiState.update { it.copy(account = account, accountLoading = false) }
+                    // long: 媒体库默认停留在“我创建的”，账号态确认后立即预加载收藏夹，避免首屏空白必须切换标签才出现数据。
+                    if (account.isLoggedIn && _uiState.value.librarySection == LibrarySection.CREATED) {
+                        loadFavoriteFolders(FavoriteGroup.CREATED)
+                    }
+                }
                 .onFailure { error ->
                     _uiState.update { it.copy(account = Account(), accountLoading = false) }
                     showError("账号状态读取失败", error)
@@ -227,6 +233,9 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         _uiState.update {
                             it.copy(account = account, accountLoading = false, loginBusy = false, qrUrl = null, qrStatus = "登录成功")
+                        }
+                        if (_uiState.value.librarySection == LibrarySection.CREATED) {
+                            loadFavoriteFolders(FavoriteGroup.CREATED)
                         }
                         return@launch
                     }

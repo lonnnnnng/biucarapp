@@ -13,6 +13,7 @@ import com.lonnnnnng.biucar.data.local.PlaybackHistoryRepository
 import com.lonnnnnng.biucar.data.local.LikedMediaRepository
 import com.lonnnnnng.biucar.data.local.MIGRATION_1_2
 import com.lonnnnnng.biucar.playback.OfflineAudioCache
+import com.lonnnnnng.biucar.playback.PlaybackOrderStore
 import java.util.concurrent.TimeUnit
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
@@ -48,6 +49,7 @@ class CarContainer(context: Context) {
     val creatorSelectionRepository = CreatorSelectionRepository(database.selectedCreatorDao())
     val playbackHistoryRepository = PlaybackHistoryRepository(database.playbackHistoryDao())
     val likedMediaRepository = LikedMediaRepository(database.likedMediaDao())
+    val playbackOrderStore = PlaybackOrderStore(context)
     val offlineAudioCache = OfflineAudioCache(
         context = context,
         client = httpClient,

@@ -30,6 +30,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Login
@@ -89,6 +91,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -440,21 +444,39 @@ private fun SourcesScreen(state: CarUiState, viewModel: CarViewModel) {
         LoginRequired { viewModel.selectLibrary(LibrarySection.ACCOUNT) }
         return
     }
+    val focusManager = LocalFocusManager.current
     Column(Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("首页内容来源", color = CarText, fontSize = 17.sp, fontWeight = FontWeight.Medium)
-                Text("已选择 ${state.draftCreatorMids.size} 位 UP 主", color = CarMuted, fontSize = 12.sp)
+                Text(
+                    if (state.hasCreatorSelectionChanges) {
+                        "已选择 ${state.draftCreatorMids.size} 位 UP 主 · 待保存"
+                    } else {
+                        "已保存 ${state.selectedCreators.size} 位 UP 主"
+                    },
+                    color = if (state.hasCreatorSelectionChanges) CarGreen else CarMuted,
+                    fontSize = 12.sp,
+                )
             }
             Button(
                 onClick = viewModel::saveCreatorSelection,
-                colors = ButtonDefaults.buttonColors(containerColor = CarGreen),
+                enabled = state.hasCreatorSelectionChanges && !state.sourceSaveInProgress,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = CarGreen,
+                    disabledContainerColor = CarSurfaceRaised,
+                    disabledContentColor = CarMuted,
+                ),
                 shape = RoundedCornerShape(5.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             ) {
-                Icon(Icons.Rounded.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                if (state.sourceSaveInProgress) {
+                    CircularProgressIndicator(color = CarMuted, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                } else {
+                    Icon(Icons.Rounded.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
                 Spacer(Modifier.width(6.dp))
-                Text("保存")
+                Text(if (state.sourceSaveInProgress) "保存中" else "保存")
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -484,6 +506,15 @@ private fun SourcesScreen(state: CarUiState, viewModel: CarViewModel) {
                     onValueChange = viewModel::updateCreatorSearchKeyword,
                     modifier = Modifier.weight(1f).height(50.dp),
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(
+                        onSearch = {
+                            if (state.creatorSearchKeyword.isNotBlank() && !state.creatorSearchLoading) {
+                                viewModel.searchCreators()
+                                focusManager.clearFocus()
+                            }
+                        },
+                    ),
                     placeholder = { Text("搜索 UP 主名称或 UID", fontSize = 13.sp, color = CarMuted) },
                     leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = CarMuted, modifier = Modifier.size(18.dp)) },
                     colors = TextFieldDefaults.colors(
@@ -666,9 +697,16 @@ private fun AccountScreen(state: CarUiState, viewModel: CarViewModel) {
 @Composable
 private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
     val currentMediaId = state.playbackQueue.getOrNull(state.currentQueueIndex)?.mediaId
+    val queueListState = rememberLazyListState()
     // long: 拖动期间只更新本地预览，松手后再执行一次 Seek，避免旧车机连续重建网络缓冲造成卡顿和播放失败。
     var pendingSeekMs by remember(currentMediaId) { mutableLongStateOf(-1L) }
     val displayedPositionMs = pendingSeekMs.takeIf { it >= 0L } ?: state.positionMs
+    LaunchedEffect(state.currentQueueIndex, state.isMultiPage) {
+        if (state.isMultiPage && state.currentQueueIndex in state.playbackQueue.indices) {
+            // long: 自动切到下一 P 时同步移动左侧列表，驾驶过程中无需再手动寻找当前曲目。
+            queueListState.scrollToItem(state.currentQueueIndex)
+        }
+    }
     Row(
         Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -691,6 +729,7 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                     Spacer(Modifier.height(7.dp))
                     HorizontalDivider(color = CarDivider)
                     LazyColumn(
+                        state = queueListState,
                         modifier = Modifier.weight(1f),
                         contentPadding = PaddingValues(vertical = 5.dp),
                     ) {

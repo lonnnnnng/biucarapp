@@ -31,6 +31,7 @@ import com.lonnnnnng.biucar.data.model.HistoryCursor
 import com.lonnnnnng.biucar.data.model.QrPollResult
 import com.lonnnnnng.biucar.data.model.Video
 import com.lonnnnnng.biucar.playback.CarPlaybackService
+import com.lonnnnnng.biucar.playback.PlaybackOrderMode
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -76,6 +77,7 @@ data class CarUiState(
     val creatorSearchLoading: Boolean = false,
     val draftCreators: List<Creator> = emptyList(),
     val sourcesLoading: Boolean = false,
+    val sourceSaveInProgress: Boolean = false,
     val favoriteFolders: Map<FavoriteGroup, List<FavoriteFolder>> = emptyMap(),
     val selectedFavoriteFolder: FavoriteFolder? = null,
     val favoriteVideos: List<Video> = emptyList(),
@@ -105,6 +107,9 @@ data class CarUiState(
 ) {
     val draftCreatorMids: Set<Long>
         get() = draftCreators.mapTo(mutableSetOf(), Creator::mid)
+
+    val hasCreatorSelectionChanges: Boolean
+        get() = draftCreators.map(Creator::mid) != selectedCreators.map(Creator::mid)
 }
 
 class CarViewModel(application: Application) : AndroidViewModel(application) {
@@ -136,6 +141,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
                 runCatching { controllerFuture.get() }.onSuccess { mediaController ->
                     controller = mediaController
                     mediaController.addListener(playerListener)
+                    applyPlaybackOrder(mediaController, container.playbackOrderStore.read())
                     _uiState.update { it.copy(controllerReady = true) }
                     syncPlayerState(includeQueue = true)
                     startProgressTicker()
@@ -380,10 +386,18 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveCreatorSelection() {
         val state = _uiState.value
+        if (!state.hasCreatorSelectionChanges || state.sourceSaveInProgress) return
         val selected = state.draftCreators
         viewModelScope.launch {
-            container.creatorSelectionRepository.replaceAll(selected)
-            _uiState.update { it.copy(message = "首页来源已保存") }
+            _uiState.update { it.copy(sourceSaveInProgress = true) }
+            runCatching { container.creatorSelectionRepository.replaceAll(selected) }
+                .onSuccess {
+                    _uiState.update { it.copy(sourceSaveInProgress = false, message = "首页来源已保存") }
+                }
+                .onFailure { error ->
+                    _uiState.update { it.copy(sourceSaveInProgress = false) }
+                    showError("首页来源保存失败", error)
+                }
         }
     }
 
@@ -590,22 +604,16 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun cyclePlaybackOrder() {
         val active = controller ?: return
-        when {
-            active.repeatMode == Player.REPEAT_MODE_OFF && !active.shuffleModeEnabled -> {
-                active.repeatMode = Player.REPEAT_MODE_ONE
-            }
-            active.repeatMode == Player.REPEAT_MODE_ONE -> {
-                active.repeatMode = Player.REPEAT_MODE_ALL
-            }
-            active.repeatMode == Player.REPEAT_MODE_ALL && !active.shuffleModeEnabled -> {
-                active.shuffleModeEnabled = true
-            }
-            else -> {
-                active.repeatMode = Player.REPEAT_MODE_OFF
-                active.shuffleModeEnabled = false
-            }
-        }
+        val nextMode = PlaybackOrderMode.fromPlayerState(active.repeatMode, active.shuffleModeEnabled).next()
+        applyPlaybackOrder(active, nextMode)
+        // long: 播放顺序属于驾驶偏好，切换后立即持久化，应用或车机重启后仍保持用户上次选择。
+        container.playbackOrderStore.write(nextMode)
         syncPlayerState()
+    }
+
+    private fun applyPlaybackOrder(active: Player, mode: PlaybackOrderMode) {
+        active.repeatMode = mode.repeatMode
+        active.shuffleModeEnabled = mode.shuffleEnabled
     }
 
     fun toggleLiked() {

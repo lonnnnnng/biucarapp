@@ -592,13 +592,21 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
         } else {
             ArtworkPlaceholder(
                 url = state.nowArtworkUrl,
-                modifier = Modifier.weight(1f).aspectRatio(1f),
+                modifier = Modifier.weight(1f),
             )
         }
         Spacer(Modifier.width(24.dp))
         // long: 单 P 以封面 1、播放器 2 的比例突出播放信息；多 P 仍保持列表与播放器等宽，保证分 P 标题可读。
         Column(Modifier.weight(if (state.isMultiPage) 1f else 2f)) {
-            Text(queueTitleForDisplay(state.nowTitle), color = CarText, fontSize = 25.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(
+                queueTitleForDisplay(state.nowTitle),
+                color = CarText,
+                fontSize = 25.sp,
+                lineHeight = 30.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
             Spacer(Modifier.height(7.dp))
             Text(state.nowArtist.ifBlank { "Biu Car" }, color = CarMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(28.dp))
@@ -680,18 +688,21 @@ private fun ArtworkPlaceholder(url: String, modifier: Modifier = Modifier) {
             runCatching { URL(url).openStream().use(BitmapFactory::decodeStream) }.getOrNull()
         }
     }
+    val artworkAspectRatio = bitmap?.takeIf { it.width > 0 && it.height > 0 }
+        ?.let { it.width.toFloat() / it.height.toFloat() }
+        ?: (16f / 9f)
     Surface(
         color = CarSurfaceRaised,
         shape = RoundedCornerShape(6.dp),
-        // long: 单 P 封面与右侧播放器各占一半宽度，封面维持正方形并裁剪填充，避免 16:9 素材被直接拉伸。
-        modifier = modifier,
+        // long: 单 P 封面沿用素材自身宽高比完整展示；加载完成前以常见 16:9 占位，避免从正方形突然跳变。
+        modifier = modifier.aspectRatio(artworkAspectRatio),
     ) {
         if (bitmap != null) {
             Image(
                 bitmap = bitmap!!.asImageBitmap(),
                 contentDescription = "当前音频封面",
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Fit,
             )
         }
     }

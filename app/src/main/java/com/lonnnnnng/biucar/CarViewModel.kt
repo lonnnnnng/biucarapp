@@ -44,6 +44,12 @@ enum class RootPage { HOME, LIBRARY, PLAYER }
 enum class LibrarySection { CREATED, COLLECTED, HISTORY, SOURCES, ACCOUNT }
 enum class HistoryMode { ONLINE, LOCAL }
 
+data class PlaybackQueueItem(
+    val mediaId: String,
+    val title: String,
+    val artist: String,
+)
+
 data class CarUiState(
     val rootPage: RootPage = RootPage.HOME,
     val librarySection: LibrarySection = LibrarySection.CREATED,
@@ -78,6 +84,10 @@ data class CarUiState(
     val isPlaying: Boolean = false,
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
+    val playbackQueue: List<PlaybackQueueItem> = emptyList(),
+    val currentQueueIndex: Int = -1,
+    val repeatMode: Int = Player.REPEAT_MODE_OFF,
+    val shuffleEnabled: Boolean = false,
     val resolvingMedia: Boolean = false,
     val message: String? = null,
 )
@@ -97,6 +107,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
 
     private val playerListener = object : Player.Listener {
         override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) = syncPlayerState()
+        override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) = syncPlayerState()
         override fun onIsPlayingChanged(isPlaying: Boolean) = syncPlayerState()
         override fun onPlaybackStateChanged(playbackState: Int) = syncPlayerState()
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = syncPlayerState()
@@ -442,6 +453,47 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         if (active.isPlaying) active.pause() else active.play()
     }
 
+    fun playPrevious() {
+        controller?.let { active ->
+            if (active.hasPreviousMediaItem()) active.seekToPreviousMediaItem() else active.seekTo(0L)
+            syncPlayerState()
+        }
+    }
+
+    fun playNext() {
+        controller?.let { active ->
+            if (active.hasNextMediaItem()) active.seekToNextMediaItem() else active.seekTo(0L)
+            syncPlayerState()
+        }
+    }
+
+    fun selectQueueItem(index: Int) {
+        controller?.let { active ->
+            if (index !in 0 until active.mediaItemCount) return@let
+            // long: 直接定位 Media3 队列项，保持通知栏、锁屏标题和 Room 当前 cid 同步更新。
+            active.seekToDefaultPosition(index)
+            active.play()
+            syncPlayerState()
+        }
+    }
+
+    fun cycleRepeatMode() {
+        val active = controller ?: return
+        val next = when (active.repeatMode) {
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ONE
+            Player.REPEAT_MODE_ONE -> Player.REPEAT_MODE_ALL
+            else -> Player.REPEAT_MODE_OFF
+        }
+        active.repeatMode = next
+        syncPlayerState()
+    }
+
+    fun toggleShuffle() {
+        val active = controller ?: return
+        active.shuffleModeEnabled = !active.shuffleModeEnabled
+        syncPlayerState()
+    }
+
     fun seekTo(positionMs: Long) {
         controller?.seekTo(positionMs.coerceAtLeast(0L))
         syncPlayerState()
@@ -495,6 +547,17 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
                 isPlaying = active.isPlaying,
                 positionMs = active.currentPosition.coerceAtLeast(0L),
                 durationMs = active.duration.takeIf { duration -> duration != C.TIME_UNSET && duration > 0L } ?: 0L,
+                playbackQueue = (0 until active.mediaItemCount).map { index ->
+                    val item = active.getMediaItemAt(index)
+                    PlaybackQueueItem(
+                        mediaId = item.mediaId,
+                        title = item.mediaMetadata.title?.toString().orEmpty().ifBlank { "未命名分 P" },
+                        artist = item.mediaMetadata.artist?.toString().orEmpty(),
+                    )
+                },
+                currentQueueIndex = active.currentMediaItemIndex,
+                repeatMode = active.repeatMode,
+                shuffleEnabled = active.shuffleModeEnabled,
             )
         }
     }

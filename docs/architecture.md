@@ -32,6 +32,8 @@
 
 每个分 P 使用 `bvid:cid` 作为独立 `mediaId`，当前分 P 名称写入通知主标题，总视频名称保留为专辑标题。自动切 P 时使用 `onPositionDiscontinuity` 的旧媒体项保存上一 P 最终进度，再由 `onMediaItemTransition` 为新 P 建立历史和缓存任务。
 
+播放页左侧常驻显示当前 Media3 队列，点击分 P 直接调用 `seekToDefaultPosition(index)`；右侧提供上一曲、下一曲、顺序/单曲/列表循环和随机播放控制。所有控制都操作同一个 `MediaController`，因此车机页面、通知栏和锁屏不会维护互相矛盾的播放状态。
+
 ## 性能约束
 
 - 单 Activity、单 MediaSessionService，不引入导航框架和视频解码器。

@@ -35,6 +35,20 @@ class CarPlaybackService : MediaSessionService() {
     private var recordedMediaId: String? = null
 
     private val listener = object : Player.Listener {
+        @UnstableApi
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int,
+        ) {
+            val oldMediaId = oldPosition.mediaItem?.mediaId.orEmpty()
+            val newMediaId = newPosition.mediaItem?.mediaId.orEmpty()
+            if (oldMediaId.isNotBlank() && oldMediaId != newMediaId) {
+                // long: 自动切 P 后 currentMediaItem 已指向新 P，必须使用回调携带的旧媒体项保存上一 P 的最终进度，避免写到错误 cid。
+                persistProgress(oldMediaId, oldPosition.positionMs, oldPosition.positionMs)
+            }
+        }
+
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             mediaItem?.let(::recordStarted)
         }
@@ -132,8 +146,12 @@ class CarPlaybackService : MediaSessionService() {
         // long: 先在主线程读取 Player 快照，再把纯数据交给历史仓库，避免后台协程触发 Media3 线程断言。
         val positionMs = activePlayer.currentPosition
         val duration = activePlayer.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: positionMs
+        persistProgress(mediaId, positionMs, duration)
+    }
+
+    private fun persistProgress(mediaId: String, positionMs: Long, durationMs: Long) {
         serviceScope.launch {
-            carContainer.playbackHistoryRepository.updateProgress(mediaId, positionMs, duration)
+            carContainer.playbackHistoryRepository.updateProgress(mediaId, positionMs, durationMs)
         }
     }
 

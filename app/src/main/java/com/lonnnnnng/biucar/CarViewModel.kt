@@ -35,6 +35,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -87,6 +88,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     val uiState: StateFlow<CarUiState> = _uiState.asStateFlow()
     private var loginJob: Job? = null
     private var progressJob: Job? = null
+    private var mediaResolveJob: Job? = null
     private var controller: MediaController? = null
     private val controllerFuture = MediaController.Builder(
         application,
@@ -379,22 +381,33 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playVideo(video: Video, pageIndex: Int = 0) {
-        if (_uiState.value.resolvingMedia) return
-        viewModelScope.launch {
+        mediaResolveJob?.cancel()
+        mediaResolveJob = viewModelScope.launch {
             _uiState.update { it.copy(resolvingMedia = true) }
-            runCatching { container.bilibiliRepository.resolveAudioTrack(video, pageIndex) }
-                .onSuccess { track ->
-                    playMediaItem(track.toMediaItem(), 0L)
-                    _uiState.update { it.copy(rootPage = RootPage.PLAYER, resolvingMedia = false) }
+            var queueStarted = false
+            runCatching {
+                container.bilibiliRepository.resolveAudioTracks(video, pageIndex).collect { track ->
+                    if (!queueStarted) {
+                        // long: 首 P 到达后立即替换旧队列并开播；后续分 P 渐进追加，兼顾老车机首播速度与自动连续播放。
+                        playMediaItem(track.toMediaItem(), 0L)
+                        queueStarted = true
+                        _uiState.update { it.copy(rootPage = RootPage.PLAYER, resolvingMedia = false) }
+                    } else {
+                        appendMediaItem(track.toMediaItem())
+                    }
                 }
+            }
                 .onFailure { error ->
                     _uiState.update { it.copy(resolvingMedia = false) }
-                    showError("音频解析失败", error)
+                    showError(if (queueStarted) "后续分 P 解析失败" else "音频解析失败", error)
                 }
         }
     }
 
     fun playHistory(item: PlaybackHistoryEntity) {
+        // long: 本地历史会建立独立的单项离线队列，先取消旧视频尚未完成的分 P 解析，避免网络结果稍后串入本地队列。
+        mediaResolveJob?.cancel()
+        _uiState.update { it.copy(resolvingMedia = false) }
         val localFile = item.localFilePath?.let(::File)?.takeIf(File::isFile)
         if (item.cacheState == AudioCacheState.READY.name && localFile != null) {
             val extras = Bundle().apply {
@@ -450,6 +463,18 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         syncPlayerState()
     }
 
+    private fun appendMediaItem(mediaItem: MediaItem) {
+        val active = controller ?: return
+        val currentItemEnded = active.playbackState == Player.STATE_ENDED
+        active.addMediaItem(mediaItem)
+        if (currentItemEnded && active.hasNextMediaItem()) {
+            // long: 极短分 P 可能在下一项网络解析完成前结束；追加后主动进入下一项，保证慢网络下仍满足连续播放语义。
+            active.seekToNextMediaItem()
+            active.prepare()
+            active.play()
+        }
+    }
+
     private fun startProgressTicker() {
         progressJob?.cancel()
         progressJob = viewModelScope.launch {
@@ -481,6 +506,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         loginJob?.cancel()
         progressJob?.cancel()
+        mediaResolveJob?.cancel()
         controller?.removeListener(playerListener)
         MediaController.releaseFuture(controllerFuture)
         controller = null

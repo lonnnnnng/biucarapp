@@ -15,6 +15,9 @@ import com.lonnnnnng.biucar.data.model.VideoPage
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -28,6 +31,7 @@ import org.json.JSONObject
 class BilibiliRepository(
     private val client: OkHttpClient,
     private val nowEpochSeconds: () -> Long = { System.currentTimeMillis() / 1000L },
+    private val apiBase: HttpUrl = API_BASE,
 ) {
     private val wbiMutex = Mutex()
     private var cachedWbiKeys: Pair<WbiKeys, Long>? = null
@@ -189,12 +193,22 @@ class BilibiliRepository(
         )
     }
 
-    suspend fun resolveAudioTrack(video: Video, pageIndex: Int = 0): AudioTrack {
+    suspend fun resolveAudioTrack(video: Video, pageIndex: Int = 0): AudioTrack =
+        resolveAudioTracks(video, pageIndex).first()
+
+    fun resolveAudioTracks(video: Video, pageIndex: Int = 0): Flow<AudioTrack> = flow {
         val detail = videoDetail(video.bvid)
         if (detail.pages.isEmpty()) throw IOException("视频没有可播放分 P")
         val preferredIndex = video.cid?.let { cid -> detail.pages.indexOfFirst { it.cid == cid } }?.takeIf { it >= 0 }
             ?: pageIndex.coerceIn(detail.pages.indices)
-        val page = detail.pages[preferredIndex]
+
+        // long: 从用户选中的分 P 开始逐项解析并立即交给播放器，首 P 无需等待整个合辑解析，后续项会按 API 顺序追加到 Media3 队列。
+        detail.pages.drop(preferredIndex).forEach { page ->
+            emit(resolveAudioTrack(video, detail, page))
+        }
+    }
+
+    private suspend fun resolveAudioTrack(video: Video, detail: VideoDetail, page: VideoPage): AudioTrack {
         val dash = request(
             "/x/player/wbi/playurl",
             mapOf("bvid" to detail.bvid, "cid" to page.cid, "fnval" to 16, "fnver" to 0, "fourk" to 0),
@@ -290,7 +304,7 @@ class BilibiliRepository(
 
     private suspend fun request(path: String, parameters: Map<String, Any?> = emptyMap(), useWbi: Boolean = false): JSONObject {
         val query = if (useWbi) WbiSigner.sign(parameters, currentWbiKeys(), nowEpochSeconds()) else null
-        val url = API_BASE.newBuilder().addPathSegments(path.removePrefix("/")).apply {
+        val url = apiBase.newBuilder().addPathSegments(path.removePrefix("/")).apply {
             if (query != null) encodedQuery(query) else parameters.forEach { (key, value) ->
                 if (value != null) addQueryParameter(key, value.toString())
             }
@@ -300,7 +314,7 @@ class BilibiliRepository(
 
     private suspend fun currentWbiKeys(): WbiKeys = wbiMutex.withLock {
         cachedWbiKeys?.takeIf { nowEpochSeconds() < it.second }?.first ?: run {
-            val data = execute(API_BASE.newBuilder().addPathSegments("x/web-interface/nav").build())
+            val data = execute(apiBase.newBuilder().addPathSegments("x/web-interface/nav").build())
                 .optJSONObject("data")?.optJSONObject("wbi_img") ?: throw IOException("无法获取 WBI key")
             val keys = WbiKeys(fileStem(data.optString("img_url")), fileStem(data.optString("sub_url")))
             require(keys.imgKey.isNotBlank() && keys.subKey.isNotBlank()) { "WBI key 无效" }

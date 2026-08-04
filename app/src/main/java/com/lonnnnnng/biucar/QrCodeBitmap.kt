@@ -1,0 +1,28 @@
+package com.lonnnnnng.biucar
+
+import android.graphics.Bitmap
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.MultiFormatWriter
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
+
+fun createQrCodeBitmap(content: String, sizePx: Int = 260): Bitmap {
+    val matrix = MultiFormatWriter().encode(
+        content,
+        BarcodeFormat.QR_CODE,
+        sizePx,
+        sizePx,
+        mapOf(
+            EncodeHintType.CHARACTER_SET to "UTF-8",
+            EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M,
+            EncodeHintType.MARGIN to 1,
+        ),
+    )
+    val pixels = IntArray(sizePx * sizePx)
+    for (y in 0 until sizePx) {
+        for (x in 0 until sizePx) {
+            pixels[y * sizePx + x] = if (matrix[x, y]) 0xFF101512.toInt() else 0xFFFFFFFF.toInt()
+        }
+    }
+    return Bitmap.createBitmap(pixels, sizePx, sizePx, Bitmap.Config.ARGB_8888)
+}

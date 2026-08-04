@@ -547,15 +547,16 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
             Surface(
                 color = CarSurface,
                 shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.width(292.dp).fillMaxHeight(),
+                // long: 车机播放页左右两侧都承担主要信息展示，按相同权重分配空间，避免播放列表偏窄而右侧留出大片空白。
+                modifier = Modifier.weight(1f).fillMaxHeight(),
             ) {
                 Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.QueueMusic, contentDescription = null, tint = CarGreen, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(7.dp))
-                        Text("播放列表", color = CarText, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("播放列表", color = CarText, fontSize = 16.sp, fontWeight = FontWeight.Medium)
                         Spacer(Modifier.weight(1f))
-                        Text("${state.playbackQueue.size} 项", color = CarMuted, fontSize = 11.sp)
+                        Text("${state.playbackQueue.size} 项", color = CarMuted, fontSize = 13.sp)
                     }
                     Spacer(Modifier.height(7.dp))
                     HorizontalDivider(color = CarDivider)
@@ -565,9 +566,9 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                     ) {
                         itemsIndexed(state.playbackQueue, key = { _, item -> item.mediaId }) { index, item ->
                             Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .height(38.dp)
+                                    Modifier
+                                        .fillMaxWidth()
+                                    .height(46.dp)
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(if (index == state.currentQueueIndex) CarSurfaceRaised else Color.Transparent)
                                     .clickable { viewModel.selectQueueItem(index) }
@@ -577,7 +578,7 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                                 Text(
                                     queueTitleForDisplay(item.title),
                                     color = if (index == state.currentQueueIndex) CarText else CarMuted,
-                                    fontSize = 12.sp,
+                                    fontSize = 15.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )

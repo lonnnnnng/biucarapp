@@ -106,27 +106,30 @@ class CarPlaybackService : MediaSessionService() {
     }
 
     private fun recordStarted(mediaItem: MediaItem) {
-        if (mediaItem.mediaId.isBlank() || mediaItem.mediaId == recordedMediaId) return
+        if (mediaItem.mediaId.isBlank()) return
         val extras = mediaItem.mediaMetadata.extras ?: return
         val bvid = extras.getString(EXTRA_BVID).orEmpty()
         val cid = extras.getLong(EXTRA_CID, 0L)
         val streamUrl = extras.getString(EXTRA_STREAM_URL).orEmpty()
         if (bvid.isBlank() || cid <= 0L || streamUrl.isBlank()) return
-        recordedMediaId = mediaItem.mediaId
+        val shouldRecordHistory = mediaItem.mediaId != recordedMediaId
+        if (shouldRecordHistory) recordedMediaId = mediaItem.mediaId
         serviceScope.launch {
-            carContainer.playbackHistoryRepository.recordStarted(
-                mediaId = mediaItem.mediaId,
-                bvid = bvid,
-                cid = cid,
-                title = extras.getString(EXTRA_RESOURCE_TITLE).orEmpty().ifBlank {
-                    mediaItem.mediaMetadata.albumTitle?.toString().orEmpty()
-                },
-                pageTitle = extras.getString(EXTRA_PAGE_TITLE),
-                artist = mediaItem.mediaMetadata.artist?.toString().orEmpty(),
-                artworkUrl = mediaItem.mediaMetadata.artworkUri?.toString().orEmpty(),
-                streamUrl = streamUrl,
-            )
-            // long: 在线播放与完整缓存并行进行；缓存失败不打断当前播放，历史仍可在恢复网络后重新解析。
+            if (shouldRecordHistory) {
+                carContainer.playbackHistoryRepository.recordStarted(
+                    mediaId = mediaItem.mediaId,
+                    bvid = bvid,
+                    cid = cid,
+                    title = extras.getString(EXTRA_RESOURCE_TITLE).orEmpty().ifBlank {
+                        mediaItem.mediaMetadata.albumTitle?.toString().orEmpty()
+                    },
+                    pageTitle = extras.getString(EXTRA_PAGE_TITLE),
+                    artist = mediaItem.mediaMetadata.artist?.toString().orEmpty(),
+                    artworkUrl = mediaItem.mediaMetadata.artworkUri?.toString().orEmpty(),
+                    streamUrl = streamUrl,
+                )
+            }
+            // long: 播放历史按媒体去重，但缓存失败后下一次播放仍需重试，避免一次网络抖动永久失去离线能力。
             carContainer.offlineAudioCache.cache(mediaItem)
         }
     }

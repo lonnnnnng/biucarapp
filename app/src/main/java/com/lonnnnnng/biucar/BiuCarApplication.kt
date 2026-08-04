@@ -10,6 +10,8 @@ import com.lonnnnnng.biucar.data.bilibili.BilibiliRepository
 import com.lonnnnnng.biucar.data.local.CarDatabase
 import com.lonnnnnng.biucar.data.local.CreatorSelectionRepository
 import com.lonnnnnng.biucar.data.local.PlaybackHistoryRepository
+import com.lonnnnnng.biucar.data.local.LikedMediaRepository
+import com.lonnnnnng.biucar.data.local.MIGRATION_1_2
 import com.lonnnnnng.biucar.playback.OfflineAudioCache
 import java.util.concurrent.TimeUnit
 import okhttp3.Dispatcher
@@ -40,9 +42,12 @@ class CarContainer(context: Context) {
         .build()
     val loginApi = TvQrLoginApi(httpClient)
     val bilibiliRepository = BilibiliRepository(httpClient)
-    private val database = Room.databaseBuilder(context, CarDatabase::class.java, "biucar.db").build()
+    private val database = Room.databaseBuilder(context, CarDatabase::class.java, "biucar.db")
+        .addMigrations(MIGRATION_1_2)
+        .build()
     val creatorSelectionRepository = CreatorSelectionRepository(database.selectedCreatorDao())
     val playbackHistoryRepository = PlaybackHistoryRepository(database.playbackHistoryDao())
+    val likedMediaRepository = LikedMediaRepository(database.likedMediaDao())
     val offlineAudioCache = OfflineAudioCache(
         context = context,
         client = httpClient,

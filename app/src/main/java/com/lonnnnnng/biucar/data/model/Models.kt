@@ -93,6 +93,7 @@ data class AudioTrack(
     val artworkUrl: String,
     val streamUrl: String,
     val qualityLabel: String,
+    val mimeType: String? = null,
 ) {
     val mediaId: String = "$bvid:$cid"
 
@@ -107,6 +108,7 @@ data class AudioTrack(
         return MediaItem.Builder()
             .setMediaId(mediaId)
             .setUri(Uri.parse(streamUrl))
+            .setMimeType(mimeType)
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(pageTitle?.takeIf(String::isNotBlank) ?: title)

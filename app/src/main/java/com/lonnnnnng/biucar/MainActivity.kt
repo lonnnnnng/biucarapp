@@ -90,6 +90,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lonnnnnng.biucar.data.local.AudioCacheState
+import com.lonnnnnng.biucar.data.local.LikedMediaEntity
 import com.lonnnnnng.biucar.data.local.PlaybackHistoryEntity
 import com.lonnnnnng.biucar.data.model.Creator
 import com.lonnnnnng.biucar.data.model.FavoriteFolder
@@ -261,6 +262,7 @@ private fun LibraryScreen(state: CarUiState, viewModel: CarViewModel) {
                 LibraryTab("我创建的", LibrarySection.CREATED, state.librarySection, viewModel)
                 LibraryTab("我收藏的", LibrarySection.COLLECTED, state.librarySection, viewModel)
                 LibraryTab("播放历史", LibrarySection.HISTORY, state.librarySection, viewModel)
+                LibraryTab("我喜欢的", LibrarySection.LIKED, state.librarySection, viewModel)
                 LibraryTab("首页 UP", LibrarySection.SOURCES, state.librarySection, viewModel)
                 LibraryTab("账号", LibrarySection.ACCOUNT, state.librarySection, viewModel)
             }
@@ -272,6 +274,7 @@ private fun LibraryScreen(state: CarUiState, viewModel: CarViewModel) {
             LibrarySection.CREATED -> FavoriteScreen(state, FavoriteGroup.CREATED, viewModel)
             LibrarySection.COLLECTED -> FavoriteScreen(state, FavoriteGroup.COLLECTED, viewModel)
             LibrarySection.HISTORY -> HistoryScreen(state, viewModel)
+            LibrarySection.LIKED -> LikedScreen(state, viewModel)
             LibrarySection.SOURCES -> SourcesScreen(state, viewModel)
             LibrarySection.ACCOUNT -> AccountScreen(state, viewModel)
         }
@@ -381,9 +384,6 @@ private fun SourcesScreen(state: CarUiState, viewModel: CarViewModel) {
                 Text("首页内容来源", color = CarText, fontSize = 17.sp, fontWeight = FontWeight.Medium)
                 Text("已选择 ${state.draftCreatorMids.size} 位 UP 主", color = CarMuted, fontSize = 12.sp)
             }
-            IconButton(onClick = viewModel::loadAvailableCreators) {
-                Icon(Icons.Rounded.Refresh, contentDescription = "刷新关注列表", tint = CarMuted)
-            }
             Button(
                 onClick = viewModel::saveCreatorSelection,
                 colors = ButtonDefaults.buttonColors(containerColor = CarGreen),
@@ -396,47 +396,69 @@ private fun SourcesScreen(state: CarUiState, viewModel: CarViewModel) {
             }
         }
         Spacer(Modifier.height(8.dp))
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedTextField(
-                value = state.creatorSearchKeyword,
-                onValueChange = viewModel::updateCreatorSearchKeyword,
-                modifier = Modifier.weight(1f).height(50.dp),
-                singleLine = true,
-                placeholder = { Text("搜索 UP 主名称或 UID", fontSize = 13.sp, color = CarMuted) },
-                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = CarMuted, modifier = Modifier.size(18.dp)) },
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = CarSurfaceRaised,
-                    unfocusedContainerColor = CarSurfaceRaised,
-                    focusedTextColor = CarText,
-                    unfocusedTextColor = CarText,
-                    focusedIndicatorColor = CarGreen,
-                    unfocusedIndicatorColor = CarDivider,
-                    cursorColor = CarGreen,
-                ),
-            )
-            IconButton(
-                onClick = viewModel::searchCreators,
-                enabled = state.creatorSearchKeyword.isNotBlank() && !state.creatorSearchLoading,
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CompactTab("我的关注", state.creatorSourceTab == CreatorSourceTab.FOLLOWING) {
+                viewModel.selectCreatorSourceTab(CreatorSourceTab.FOLLOWING)
+            }
+            CompactTab("搜索添加", state.creatorSourceTab == CreatorSourceTab.SEARCH) {
+                viewModel.selectCreatorSourceTab(CreatorSourceTab.SEARCH)
+            }
+            Spacer(Modifier.weight(1f))
+            if (state.creatorSourceTab == CreatorSourceTab.FOLLOWING) {
+                IconButton(onClick = viewModel::loadAvailableCreators) {
+                    Icon(Icons.Rounded.Refresh, contentDescription = "刷新关注列表", tint = CarMuted)
+                }
+            }
+        }
+        if (state.creatorSourceTab == CreatorSourceTab.SEARCH) {
+            Spacer(Modifier.height(6.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (state.creatorSearchLoading) {
-                    CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
-                } else {
-                    Icon(Icons.Rounded.Search, contentDescription = "搜索 UP 主", tint = CarGreen)
+                OutlinedTextField(
+                    value = state.creatorSearchKeyword,
+                    onValueChange = viewModel::updateCreatorSearchKeyword,
+                    modifier = Modifier.weight(1f).height(50.dp),
+                    singleLine = true,
+                    placeholder = { Text("搜索 UP 主名称或 UID", fontSize = 13.sp, color = CarMuted) },
+                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = CarMuted, modifier = Modifier.size(18.dp)) },
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = CarSurfaceRaised,
+                        unfocusedContainerColor = CarSurfaceRaised,
+                        focusedTextColor = CarText,
+                        unfocusedTextColor = CarText,
+                        focusedIndicatorColor = CarGreen,
+                        unfocusedIndicatorColor = CarDivider,
+                        cursorColor = CarGreen,
+                    ),
+                )
+                IconButton(
+                    onClick = viewModel::searchCreators,
+                    enabled = state.creatorSearchKeyword.isNotBlank() && !state.creatorSearchLoading,
+                ) {
+                    if (state.creatorSearchLoading) {
+                        CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                    } else {
+                        Icon(Icons.Rounded.Search, contentDescription = "搜索 UP 主", tint = CarGreen)
+                    }
                 }
             }
         }
         Spacer(Modifier.height(6.dp))
         HorizontalDivider(color = CarDivider)
         LazyColumn(Modifier.fillMaxSize()) {
-            val candidates = (state.selectedCreators + state.availableCreators + state.creatorSearchResults).distinctBy(Creator::mid)
+            val followingMids = state.availableCreators.mapTo(mutableSetOf(), Creator::mid)
+            val candidates = if (state.creatorSourceTab == CreatorSourceTab.FOLLOWING) {
+                state.availableCreators
+            } else {
+                (state.draftCreators.filterNot { it.mid in followingMids } + state.creatorSearchResults).distinctBy(Creator::mid)
+            }
             items(candidates, key = Creator::mid) { creator ->
                 val selected = creator.mid in state.draftCreatorMids
                 Row(
-                    Modifier.fillMaxWidth().height(52.dp).clickable { viewModel.toggleCreator(creator.mid) }.padding(horizontal = 8.dp),
+                    Modifier.fillMaxWidth().height(52.dp).clickable { viewModel.toggleCreator(creator) }.padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
@@ -453,8 +475,21 @@ private fun SourcesScreen(state: CarUiState, viewModel: CarViewModel) {
                 HorizontalDivider(color = CarDivider)
             }
             if (state.sourcesLoading) item { LoadingRow() }
-            if (candidates.isEmpty() && !state.sourcesLoading && !state.creatorSearchLoading) item { EmptyInline("点击刷新读取关注列表，或搜索 UP 主") }
+            if (candidates.isEmpty() && !state.sourcesLoading && !state.creatorSearchLoading) {
+                item { EmptyInline(if (state.creatorSourceTab == CreatorSourceTab.FOLLOWING) "暂无关注的 UP 主" else "输入名称或 UID 搜索 UP 主") }
+            }
         }
+    }
+}
+
+@Composable
+private fun LikedScreen(state: CarUiState, viewModel: CarViewModel) {
+    LazyColumn(Modifier.fillMaxSize()) {
+        items(state.likedItems, key = LikedMediaEntity::mediaId) { item ->
+            LikedRow(item) { viewModel.playLiked(item) }
+            HorizontalDivider(color = CarDivider)
+        }
+        if (state.likedItems.isEmpty()) item { EmptyInline("暂无喜欢的内容，可从播放页添加") }
     }
 }
 
@@ -794,13 +829,32 @@ private fun HistoryRow(item: PlaybackHistoryEntity, onPlay: () -> Unit) {
         )
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(item.pageTitle?.takeIf(String::isNotBlank) ?: item.title, color = CarText, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(queueTitleForDisplay(item.pageTitle?.takeIf(String::isNotBlank) ?: item.title), color = CarText, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(3.dp))
             Text(item.artist, color = CarMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Text("${formatDuration(item.lastPositionMs)} / ${formatDuration(item.durationMs)}", color = CarMuted, fontSize = 11.sp)
         Spacer(Modifier.width(12.dp))
         Icon(Icons.Rounded.PlayArrow, contentDescription = "播放历史", tint = CarGreen, modifier = Modifier.size(28.dp))
+    }
+}
+
+@Composable
+private fun LikedRow(item: LikedMediaEntity, onPlay: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().height(62.dp).clickable(onClick = onPlay).padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.Favorite, contentDescription = null, tint = CarGreen, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(item.pageTitle?.takeIf(String::isNotBlank) ?: item.title, color = CarText, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(3.dp))
+            Text(item.artist, color = CarMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Text(formatDate(item.likedAtEpochMs / 1_000L), color = CarMuted, fontSize = 11.sp)
+        Spacer(Modifier.width(12.dp))
+        Icon(Icons.Rounded.PlayArrow, contentDescription = "播放喜欢内容", tint = CarGreen, modifier = Modifier.size(28.dp))
     }
 }
 

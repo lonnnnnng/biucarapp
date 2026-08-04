@@ -1,5 +1,6 @@
 package com.lonnnnnng.biucar.data.bilibili
 
+import androidx.media3.common.MimeTypes
 import com.lonnnnnng.biucar.data.model.Account
 import com.lonnnnnng.biucar.data.model.AudioTrack
 import com.lonnnnnng.biucar.data.model.Creator
@@ -74,15 +75,38 @@ class BilibiliRepository(
     suspend fun searchCreators(keyword: String, page: Int = 1): Page<Creator> {
         val normalizedKeyword = keyword.trim()
         require(normalizedKeyword.isNotBlank()) { "请输入 UP 主名称或 UID" }
+        val uid = normalizedKeyword.toLongOrNull()?.takeIf { it > 0L }
+        if (uid != null) {
+            val data = request(
+                "/x/space/wbi/acc/info",
+                mapOf("mid" to uid),
+                useWbi = true,
+            ).successData()
+            val resolvedMid = data.optLong("mid", uid).takeIf { it > 0L }
+                ?: throw IOException("UP 主 UID 无效")
+            return Page(
+                items = listOf(
+                    Creator(
+                        mid = resolvedMid,
+                        name = plainText(data.optString("name")).ifBlank { "UID $resolvedMid" },
+                        faceUrl = httpsUrl(data.optString("face")),
+                    ),
+                ),
+                page = 1,
+                hasMore = false,
+            )
+        }
         val normalizedPage = page.coerceAtLeast(1)
+        // long: 名称搜索使用当前 Web WBI 端点；旧的无签名端点会返回风控 HTML，无法作为车机稳定数据源。
         val data = request(
-            "/x/web-interface/search/type",
+            "/x/web-interface/wbi/search/type",
             mapOf(
                 "search_type" to "bili_user",
                 "keyword" to normalizedKeyword,
                 "page" to normalizedPage,
                 "pagesize" to CREATOR_SEARCH_PAGE_SIZE,
             ),
+            useWbi = true,
         ).successData()
         val results = data.optJSONArray("result").objects().mapNotNull { item ->
             val mid = item.optLongOrNull("mid")?.takeIf { it > 0L } ?: return@mapNotNull null
@@ -232,22 +256,26 @@ class BilibiliRepository(
     }
 
     private suspend fun resolveAudioTrack(video: Video, detail: VideoDetail, page: VideoPage): AudioTrack {
-        val dash = request(
+        val data = request(
             "/x/player/wbi/playurl",
             mapOf("bvid" to detail.bvid, "cid" to page.cid, "fnval" to 16, "fnver" to 0, "fourk" to 0),
             useWbi = true,
-        ).successData().optJSONObject("dash") ?: throw IOException("没有 DASH 音频")
-        // long: 旧车机只选择标准 AAC 音轨，不请求 FLAC、杜比和视频轨，降低带宽、解码压力与兼容风险。
-        val audio = dash.optJSONArray("audio").objects()
+        ).successData()
+        // long: 旧车机优先选择标准 AAC DASH；部分普通投稿只返回合并的 MP4 渐进流，Media3 不挂视频 Surface 时可直接输出其中的音轨。
+        val audio = data.optJSONObject("dash")?.optJSONArray("audio").objects()
             .filter { item ->
                 val codec = item.optString("codecs").lowercase()
                 val id = item.optInt("id", -1)
                 codec.contains("mp4a") || id in STANDARD_AAC_IDS
             }
             .maxByOrNull { it.optLong("bandwidth", 0L) }
-            ?: throw IOException("没有标准 AAC 音轨")
-        val streamUrl = audio.optString("baseUrl").ifBlank { audio.optString("base_url") }
-            .takeIf(String::isNotBlank) ?: throw IOException("音频地址为空")
+        val streamUrl = audio?.let { item -> item.optString("baseUrl").ifBlank { item.optString("base_url") } }
+            ?.takeIf(String::isNotBlank)
+            ?: data.optJSONArray("durl")?.objects()?.firstNotNullOfOrNull { item ->
+                item.optString("url").takeIf(String::isNotBlank)
+                    ?: item.optJSONArray("backup_url")?.optString(0)?.takeIf(String::isNotBlank)
+            }
+            ?: throw IOException("没有可播放音频流")
         val pageTitle = if (detail.pages.size > 1) "P${page.page} · ${page.title.ifBlank { "第 ${page.page} P" }}" else null
         return AudioTrack(
             bvid = detail.bvid,
@@ -257,7 +285,9 @@ class BilibiliRepository(
             artist = detail.author.ifBlank { video.author },
             artworkUrl = detail.coverUrl.ifBlank { video.coverUrl },
             streamUrl = streamUrl,
-            qualityLabel = "${audio.optLong("bandwidth", 0L) / 1000L} kbps",
+            qualityLabel = audio?.let { "${it.optLong("bandwidth", 0L) / 1000L} kbps" } ?: "兼容流",
+            // long: 合并 MP4 的 CDN URL 经常没有扩展名，显式 MIME 让旧版车机的 Media3 直接走 MP4 解析器；DASH 音频仍按音频 MP4 处理。
+            mimeType = if (audio != null) MimeTypes.AUDIO_MP4 else MimeTypes.VIDEO_MP4,
         )
     }
 
@@ -317,6 +347,7 @@ class BilibiliRepository(
         return Video(
             bvid = bvid,
             aid = item.optLongOrNull("aid") ?: item.optLongOrNull("id"),
+            cid = item.optLongOrNull("cid"),
             title = plainText(item.optString(titleField)),
             author = plainText(author),
             coverUrl = httpsUrl(item.optString(coverField)),

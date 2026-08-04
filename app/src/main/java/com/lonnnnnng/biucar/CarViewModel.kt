@@ -15,6 +15,7 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.lonnnnnng.biucar.data.local.AudioCacheState
+import com.lonnnnnng.biucar.data.local.LikedMediaEntity
 import com.lonnnnnng.biucar.data.local.PlaybackHistoryEntity
 import com.lonnnnnng.biucar.data.model.Account
 import com.lonnnnnng.biucar.data.model.Creator
@@ -41,7 +42,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 enum class RootPage { HOME, LIBRARY, PLAYER }
-enum class LibrarySection { CREATED, COLLECTED, HISTORY, SOURCES, ACCOUNT }
+enum class LibrarySection { CREATED, COLLECTED, HISTORY, LIKED, SOURCES, ACCOUNT }
+enum class CreatorSourceTab { FOLLOWING, SEARCH }
 enum class HistoryMode { ONLINE, LOCAL }
 
 data class PlaybackQueueItem(
@@ -66,10 +68,11 @@ data class CarUiState(
     val homeHasMore: Map<Long, Boolean> = emptyMap(),
     val homeLoading: Boolean = false,
     val availableCreators: List<Creator> = emptyList(),
+    val creatorSourceTab: CreatorSourceTab = CreatorSourceTab.FOLLOWING,
     val creatorSearchKeyword: String = "",
     val creatorSearchResults: List<Creator> = emptyList(),
     val creatorSearchLoading: Boolean = false,
-    val draftCreatorMids: Set<Long> = emptySet(),
+    val draftCreators: List<Creator> = emptyList(),
     val sourcesLoading: Boolean = false,
     val favoriteFolders: Map<FavoriteGroup, List<FavoriteFolder>> = emptyMap(),
     val selectedFavoriteFolder: FavoriteFolder? = null,
@@ -81,6 +84,7 @@ data class CarUiState(
     val historyCursor: HistoryCursor? = null,
     val onlineHistoryLoading: Boolean = false,
     val localHistory: List<PlaybackHistoryEntity> = emptyList(),
+    val likedItems: List<LikedMediaEntity> = emptyList(),
     val controllerReady: Boolean = false,
     val nowTitle: String = "尚未播放",
     val nowArtist: String = "",
@@ -96,7 +100,10 @@ data class CarUiState(
     val liked: Boolean = false,
     val resolvingMedia: Boolean = false,
     val message: String? = null,
-)
+) {
+    val draftCreatorMids: Set<Long>
+        get() = draftCreators.mapTo(mutableSetOf(), Creator::mid)
+}
 
 class CarViewModel(application: Application) : AndroidViewModel(application) {
     private val container = application.carContainer
@@ -105,7 +112,6 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     private var loginJob: Job? = null
     private var progressJob: Job? = null
     private var mediaResolveJob: Job? = null
-    private var likedMediaId: String? = null
     private var controller: MediaController? = null
     private val controllerFuture = MediaController.Builder(
         application,
@@ -142,7 +148,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         selectedCreators = selected,
                         selectedHomeMid = currentMid,
-                        draftCreatorMids = if (it.availableCreators.isEmpty()) selected.map(Creator::mid).toSet() else it.draftCreatorMids,
+                        draftCreators = if (it.availableCreators.isEmpty() && it.draftCreators.isEmpty()) selected else it.draftCreators,
                     )
                 }
                 currentMid?.let { mid -> if (_uiState.value.homeVideos[mid] == null) loadHome(mid, reset = true) }
@@ -151,6 +157,17 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             container.playbackHistoryRepository.recent.collect { items ->
                 _uiState.update { it.copy(localHistory = items) }
+            }
+        }
+        viewModelScope.launch {
+            container.likedMediaRepository.liked.collect { items ->
+                val currentMediaId = controller?.currentMediaItem?.mediaId
+                _uiState.update {
+                    it.copy(
+                        likedItems = items,
+                        liked = currentMediaId != null && items.any { item -> item.mediaId == currentMediaId },
+                    )
+                }
             }
         }
         refreshAccount()
@@ -166,6 +183,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
             LibrarySection.CREATED -> loadFavoriteFolders(FavoriteGroup.CREATED)
             LibrarySection.COLLECTED -> loadFavoriteFolders(FavoriteGroup.COLLECTED)
             LibrarySection.HISTORY -> if (_uiState.value.account.isLoggedIn && _uiState.value.onlineHistory.isEmpty()) loadOnlineHistory(true)
+            LibrarySection.LIKED -> Unit
             LibrarySection.SOURCES -> if (_uiState.value.availableCreators.isEmpty()) loadAvailableCreators()
             LibrarySection.ACCOUNT -> Unit
         }
@@ -254,6 +272,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
                 librarySection = LibrarySection.ACCOUNT,
                 controllerReady = it.controllerReady,
                 localHistory = it.localHistory,
+                likedItems = it.likedItems,
                 nowTitle = it.nowTitle,
                 nowArtist = it.nowArtist,
                 isPlaying = it.isPlaying,
@@ -304,7 +323,6 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.update {
                         it.copy(
                             availableCreators = creators,
-                            draftCreatorMids = it.selectedCreators.map(Creator::mid).toSet(),
                             sourcesLoading = false,
                         )
                     }
@@ -318,6 +336,11 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateCreatorSearchKeyword(keyword: String) {
         _uiState.update { it.copy(creatorSearchKeyword = keyword) }
+    }
+
+    fun selectCreatorSourceTab(tab: CreatorSourceTab) {
+        _uiState.update { it.copy(creatorSourceTab = tab) }
+        if (tab == CreatorSourceTab.FOLLOWING && _uiState.value.availableCreators.isEmpty()) loadAvailableCreators()
     }
 
     fun searchCreators() {
@@ -336,18 +359,18 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun toggleCreator(mid: Long) {
+    fun toggleCreator(creator: Creator) {
         _uiState.update { state ->
-            val updated = state.draftCreatorMids.toMutableSet().apply { if (!add(mid)) remove(mid) }
-            state.copy(draftCreatorMids = updated)
+            val updated = state.draftCreators.toMutableList()
+            val index = updated.indexOfFirst { it.mid == creator.mid }
+            if (index >= 0) updated.removeAt(index) else updated += creator
+            state.copy(draftCreators = updated)
         }
     }
 
     fun saveCreatorSelection() {
         val state = _uiState.value
-        // long: 已保存但尚未刷新关注列表的 UP 也必须保留，否则用户只打开页面点击保存会误清空首页来源。
-        val candidates = (state.selectedCreators + state.availableCreators + state.creatorSearchResults).distinctBy(Creator::mid)
-        val selected = candidates.filter { it.mid in state.draftCreatorMids }
+        val selected = state.draftCreators
         viewModelScope.launch {
             container.creatorSelectionRepository.replaceAll(selected)
             _uiState.update { it.copy(message = "首页来源已保存") }
@@ -487,6 +510,25 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun playLiked(item: LikedMediaEntity) {
+        viewModelScope.launch {
+            val history = container.playbackHistoryRepository.find(item.mediaId)
+            if (history != null) {
+                playHistory(history)
+            } else {
+                playVideo(
+                    Video(
+                        bvid = item.bvid,
+                        cid = item.cid,
+                        title = item.title,
+                        author = item.artist,
+                        coverUrl = item.artworkUrl,
+                    ),
+                )
+            }
+        }
+    }
+
     fun togglePlayback() {
         val active = controller ?: return
         if (active.isPlaying) active.pause() else active.play()
@@ -548,9 +590,35 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleLiked() {
-        val currentMediaId = controller?.currentMediaItem?.mediaId ?: return
-        likedMediaId = if (likedMediaId == currentMediaId) null else currentMediaId
-        _uiState.update { it.copy(liked = likedMediaId == currentMediaId) }
+        val current = controller?.currentMediaItem ?: return
+        val metadata = current.mediaMetadata
+        val extras = metadata.extras
+        val bvid = extras?.getString(EXTRA_BVID).orEmpty()
+        val cid = extras?.getLong(EXTRA_CID, 0L) ?: 0L
+        if (bvid.isBlank() || cid <= 0L) {
+            _uiState.update { it.copy(message = "当前内容缺少收藏标识") }
+            return
+        }
+        val item = LikedMediaEntity(
+            mediaId = current.mediaId,
+            bvid = bvid,
+            cid = cid,
+            title = extras?.getString(EXTRA_RESOURCE_TITLE).orEmpty()
+                .ifBlank { metadata.albumTitle?.toString().orEmpty() }
+                .ifBlank { metadata.title?.toString().orEmpty() },
+            pageTitle = extras?.getString(EXTRA_PAGE_TITLE),
+            artist = metadata.artist?.toString().orEmpty(),
+            artworkUrl = metadata.artworkUri?.toString().orEmpty(),
+            likedAtEpochMs = 0L,
+        )
+        val isLiked = _uiState.value.likedItems.any { it.mediaId == current.mediaId }
+        viewModelScope.launch {
+            if (isLiked) {
+                container.likedMediaRepository.remove(current.mediaId)
+            } else {
+                container.likedMediaRepository.add(item)
+            }
+        }
     }
 
     fun toggleShuffle() {
@@ -605,13 +673,14 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     private fun syncPlayerState() {
         val active = controller ?: return
         val metadata = active.mediaMetadata
-        _uiState.update {
-            it.copy(
+        val currentMediaId = active.currentMediaItem?.mediaId
+        _uiState.update { state ->
+            state.copy(
                 nowTitle = metadata.title?.toString()?.takeIf(String::isNotBlank) ?: "尚未播放",
                 nowArtist = metadata.artist?.toString().orEmpty(),
                 nowArtworkUrl = metadata.artworkUri?.toString().orEmpty(),
                 isMultiPage = metadata.extras?.getString(EXTRA_PAGE_TITLE).orEmpty().isNotBlank(),
-                liked = likedMediaId == active.currentMediaItem?.mediaId,
+                liked = currentMediaId != null && state.likedItems.any { it.mediaId == currentMediaId },
                 isPlaying = active.isPlaying,
                 positionMs = active.currentPosition.coerceAtLeast(0L),
                 durationMs = active.duration.takeIf { duration -> duration != C.TIME_UNSET && duration > 0L } ?: 0L,

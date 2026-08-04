@@ -18,7 +18,7 @@
 
 ## 首页
 
-配置候选默认来自当前账号完整关注列表，也可以在“首页 UP”页面输入名称或 UID，通过 `/x/web-interface/search/type?search_type=bili_user` 手动搜索。关注结果与搜索结果合并展示，二者都可以勾选；保存时只持久化选中 UP 的 `mid`、名称、头像和顺序，避免搜索得到的 UP 因不在关注列表中而无法保存。每位 UP 对应一个 Tab，通过 WBI 空间投稿接口按发布时间倒序加载。配置为空时不请求任何默认推荐接口。
+配置候选默认来自当前账号完整关注列表，也可以在“首页 UP”页面输入名称或 UID 手动搜索：名称使用 WBI `/x/web-interface/wbi/search/type?search_type=bili_user`，纯数字 UID 使用 WBI `/x/space/wbi/acc/info`。关注结果与搜索结果分为两个子 Tab，二者都可以勾选；保存时持久化选中 UP 的 `mid`、名称、头像和顺序，避免搜索得到的 UP 因不在关注列表中而无法保存。每位 UP 对应一个 Tab，通过 WBI 空间投稿接口按发布时间倒序加载。配置为空时不请求任何默认推荐接口。
 
 ## 收藏与历史
 
@@ -36,7 +36,9 @@
 
 播放页根据当前媒体项是否存在分 P 标题区分布局：多 P 显示左侧播放列表，列表行只显示接口返回的分 P 标题，不额外拼接序号，播放列表与右侧播放器按 `1:1` 分栏；单 P 不显示播放列表，左侧封面与右侧播放器按 `1:2` 分栏。单 P 封面按素材自身宽高比完整显示，不裁剪、不拉伸；右侧两行标题使用略大于字号的行高，避免文字上下相贴。右侧控制按钮保持同一横排，播放状态说明文案不放在控制区，避免占用车机屏幕空间。
 
-右侧控制条固定为均匀分布的五项：播放顺序、上一曲、播放/暂停、下一曲、喜欢。播放顺序按钮统一管理顺序、单曲循环、列表循环和随机模式；喜欢按钮当前按 `mediaId` 保存在会话状态，后续接入“我喜欢的”列表时再迁移到 Room。
+右侧控制条固定为均匀分布的五项：播放顺序、上一曲、播放/暂停、下一曲、喜欢。播放顺序按钮统一管理顺序、单曲循环、列表循环和随机模式；喜欢按钮按 `bvid:cid` 形成的 `mediaId` 持久化到 Room，跨进程重启后仍可在媒体库恢复。
+
+“我喜欢的”使用独立 Room 表 `liked_media` 保存 `bvid/cid`、主标题、分 P 标题、作者、封面和喜欢时间，`mediaId` 使用 `bvid:cid` 区分多 P 的具体条目。数据库从 v1 通过 `MIGRATION_1_2` 增加该表；播放页喜欢按钮异步写入或删除，媒体库列表通过 Flow 实时更新。点击喜欢列表时优先恢复本地播放历史或缓存，否则按记录的 `bvid/cid` 重新解析，退出账号不会清理本地喜欢记录。
 
 ## 性能约束
 
@@ -49,5 +51,7 @@
 ## 证据来源
 
 - [bilibili-API-collect APPKey](https://github.com/pskdje/bilibili-API-collect/blob/main/docs/misc/sign/APPKey.md)
+- [bilibili-API-collect 搜索接口与 WBI](https://github.com/pskdje/bilibili-API-collect/blob/main/docs/search/search_request.md)
+- [bilibili-API-collect 用户资料接口](https://github.com/pskdje/bilibili-API-collect/blob/main/docs/user/info.md)
 - [TV 扫码调用实现](https://github.com/WhiteSevs/TamperMonkeyScript/blob/master/scripts-vite/%E3%80%90%E7%A7%BB%E5%8A%A8%E7%AB%AF%E3%80%91bilibili%E4%BC%98%E5%8C%96/src/api/BilibiliLoginApi.ts)
 - [扫码接口字段演进记录](https://gitea.s1f.ren/shiran/bilibili-API-collect/commit/1deb78b295866755cbbcb46eaaf18d8004db46d9.patch)

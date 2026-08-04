@@ -78,6 +78,12 @@ class CarPlaybackService : MediaSessionService() {
             .setMediaSourceFactory(mediaSourceFactory)
             .build()
             .apply {
+                // long: 车机播放页只输出音频；禁用合并 MP4 的视频轨，避免 Android 8.1 为无用画面创建解码器并把起播卡在大缓冲阈值。
+                setTrackSelectionParameters(
+                    trackSelectionParameters.buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true)
+                        .build(),
+                )
                 setAudioAttributes(AudioAttributes.DEFAULT, true)
                 setHandleAudioBecomingNoisy(true)
                 addListener(listener)

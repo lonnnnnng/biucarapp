@@ -4,18 +4,20 @@ import com.lonnnnnng.biucar.data.auth.CredentialStore
 import okhttp3.Interceptor
 import okhttp3.Response
 
-class BilibiliInterceptor(private val credentialStore: CredentialStore) : Interceptor {
+class BilibiliInterceptor(
+    private val credentialStore: CredentialStore?,
+) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         val host = request.url.host
-        if (!isBilibiliHost(host)) return chain.proceed(request)
+        // long: playurl 可能返回第三方 CDN 域名；它们同样要求 Bilibili 的 Referer 和桌面 UA，但绝不能收到账号 Cookie。
         val builder = request.newBuilder()
             .header("Referer", "https://www.bilibili.com/")
-            .header("Origin", "https://www.bilibili.com")
             .header("User-Agent", USER_AGENT)
-        // long: 账号 Cookie 只能发给 bilibili.com；媒体 CDN 仅保留 Referer，避免凭据被发送到视频分发域名。
-        if (host == "bilibili.com" || host.endsWith(".bilibili.com")) {
-            credentialStore.cookieHeader()?.let { builder.header("Cookie", it) }
+        if (isBilibiliHost(host)) {
+            builder.header("Origin", "https://www.bilibili.com")
+            // long: 账号 Cookie 只能发给 bilibili.com；第三方媒体 CDN 仅保留 Referer 和 UA，避免凭据外泄。
+            credentialStore?.cookieHeader()?.let { builder.header("Cookie", it) }
         }
         return chain.proceed(builder.build())
     }

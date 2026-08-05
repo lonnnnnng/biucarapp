@@ -639,8 +639,17 @@ private fun AccountScreen(state: CarUiState, viewModel: CarViewModel) {
                 Spacer(Modifier.height(6.dp))
                 Text("UID ${state.account.mid}", color = CarMuted, fontSize = 13.sp)
             }
-            IconButton(onClick = viewModel::refreshAccount, modifier = Modifier.size(52.dp)) {
-                Icon(Icons.Rounded.Refresh, contentDescription = "刷新账号", tint = CarMuted)
+            val refreshingAccountContent = state.accountLoading || state.favoriteLoading || state.onlineHistoryLoading || state.sourcesLoading
+            IconButton(
+                onClick = viewModel::refreshAllAccountContent,
+                enabled = !refreshingAccountContent,
+                modifier = Modifier.size(52.dp),
+            ) {
+                if (refreshingAccountContent) {
+                    CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                } else {
+                    Icon(Icons.Rounded.Refresh, contentDescription = "刷新账号", tint = CarMuted)
+                }
             }
             Spacer(Modifier.width(8.dp))
             Button(
@@ -1072,4 +1081,4 @@ private fun formatDuration(milliseconds: Long): String {
 }
 
 private fun formatDate(epochSeconds: Long): String =
-    SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(epochSeconds * 1_000L))
+    SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.CHINA).format(Date(epochSeconds * 1_000L))

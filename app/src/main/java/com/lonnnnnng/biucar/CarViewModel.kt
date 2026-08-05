@@ -28,6 +28,7 @@ import com.lonnnnnng.biucar.data.model.EXTRA_STREAM_URL
 import com.lonnnnnng.biucar.data.model.FavoriteFolder
 import com.lonnnnnng.biucar.data.model.FavoriteGroup
 import com.lonnnnnng.biucar.data.model.HistoryCursor
+import com.lonnnnnng.biucar.data.model.HistoryPage
 import com.lonnnnnng.biucar.data.model.QrPollResult
 import com.lonnnnnng.biucar.data.model.Video
 import com.lonnnnnng.biucar.playback.CarPlaybackService
@@ -35,6 +36,7 @@ import com.lonnnnnng.biucar.playback.PlaybackOrderMode
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,6 +45,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 
 enum class RootPage { HOME, LIBRARY, PLAYER }
 enum class LibrarySection { CREATED, COLLECTED, HISTORY, LIKED, SOURCES, ACCOUNT }
@@ -232,6 +235,108 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun refreshAllAccountContent() {
+        accountJob?.cancel()
+        cancelAccountScopedJobs()
+        accountJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    accountLoading = true,
+                    favoriteLoading = false,
+                    onlineHistoryLoading = false,
+                    sourcesLoading = false,
+                )
+            }
+            try {
+                val account = container.bilibiliRepository.account()
+                _uiState.update { it.copy(account = account, accountLoading = false) }
+                if (!account.isLoggedIn || account.mid <= 0L) return@launch
+
+                val visibleGroup = when (_uiState.value.librarySection) {
+                    LibrarySection.CREATED -> FavoriteGroup.CREATED
+                    LibrarySection.COLLECTED -> FavoriteGroup.COLLECTED
+                    else -> _uiState.value.selectedFavoriteFolder?.group
+                }
+                val selectedFolderId = _uiState.value.selectedFavoriteFolder
+                    ?.takeIf { it.group == visibleGroup }
+                    ?.id
+                _uiState.update {
+                    it.copy(
+                        favoriteLoading = true,
+                        onlineHistoryLoading = true,
+                        sourcesLoading = true,
+                    )
+                }
+
+                // long: 账号页刷新需要同步更新所有远端入口，但单个接口失败不能阻断其他列表的刷新结果。
+                suspend fun <T> fetch(block: suspend () -> T): Result<T> = try {
+                    Result.success(block())
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    Result.failure(error)
+                }
+
+                val results = supervisorScope {
+                    val created = async { fetch { container.bilibiliRepository.favoriteFolders(account.mid, FavoriteGroup.CREATED) } }
+                    val collected = async { fetch { container.bilibiliRepository.favoriteFolders(account.mid, FavoriteGroup.COLLECTED) } }
+                    val history = async { fetch { container.bilibiliRepository.onlineHistory() } }
+                    val creators = async { fetch { container.bilibiliRepository.followingCreators(account.mid) } }
+                    AccountContentRefreshResult(
+                        created = created.await(),
+                        collected = collected.await(),
+                        history = history.await(),
+                        creators = creators.await(),
+                    )
+                }
+
+                val failures = listOf(
+                    results.created.exceptionOrNull(),
+                    results.collected.exceptionOrNull(),
+                    results.history.exceptionOrNull(),
+                    results.creators.exceptionOrNull(),
+                ).filterNotNull()
+                failures.forEach { Log.e(TAG, "账号内容刷新失败", it) }
+                _uiState.update { state ->
+                    val folders = state.favoriteFolders.toMutableMap()
+                    results.created.getOrNull()?.let { folders[FavoriteGroup.CREATED] = it }
+                    results.collected.getOrNull()?.let { folders[FavoriteGroup.COLLECTED] = it }
+                    val refreshedHistory = results.history.getOrNull()
+                    val selected = visibleGroup?.let { group ->
+                        folders[group].orEmpty().firstOrNull { it.id == selectedFolderId }
+                            ?: folders[group].orEmpty().firstOrNull()
+                    }
+                    state.copy(
+                        favoriteFolders = folders,
+                        selectedFavoriteFolder = selected,
+                        onlineHistory = refreshedHistory?.items ?: state.onlineHistory,
+                        historyCursor = if (refreshedHistory != null) refreshedHistory.nextCursor else state.historyCursor,
+                        availableCreators = results.creators.getOrNull() ?: state.availableCreators,
+                        favoriteLoading = false,
+                        onlineHistoryLoading = false,
+                        sourcesLoading = false,
+                    )
+                }
+                _uiState.value.selectedFavoriteFolder
+                    ?.takeIf { it.group == visibleGroup }
+                    ?.let { selectFavoriteFolder(it, forceReload = true) }
+                failures.firstOrNull()?.let { showError("部分账号内容刷新失败", it) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        accountLoading = false,
+                        favoriteLoading = false,
+                        onlineHistoryLoading = false,
+                        sourcesLoading = false,
+                    )
+                }
+                showError("账号内容刷新失败", error)
+            }
+        }
+    }
+
     fun startQrLogin() {
         loginJob?.cancel()
         loginJob = viewModelScope.launch {
@@ -399,6 +504,13 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         favoriteVideosJob?.cancel()
         onlineHistoryJob?.cancel()
     }
+
+    private data class AccountContentRefreshResult(
+        val created: Result<List<FavoriteFolder>>,
+        val collected: Result<List<FavoriteFolder>>,
+        val history: Result<HistoryPage>,
+        val creators: Result<List<Creator>>,
+    )
 
     fun toggleCreator(creator: Creator) {
         _uiState.update { state ->

@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.core.view.WindowCompat
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -94,6 +95,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -117,9 +119,11 @@ private val CarBackground = Color(0xFF0B0F0D)
 private val CarSurface = Color(0xFF131A17)
 private val CarSurfaceRaised = Color(0xFF1A241F)
 private val CarGreen = Color(0xFF53E491)
+private val CarGreenSoft = Color(0xFF173A29)
 private val CarText = Color(0xFFF1F6F3)
 private val CarMuted = Color(0xFF98A69E)
 private val CarDivider = Color(0xFF26332D)
+private val CarDanger = Color(0xFFE66A6A)
 
 class MainActivity : ComponentActivity() {
     private val viewModel: CarViewModel by viewModels()
@@ -209,11 +213,20 @@ private fun CarNavigation(selected: RootPage, onSelect: (RootPage) -> Unit) {
             .width(126.dp)
             .fillMaxHeight()
             .background(CarSurface)
-            .padding(horizontal = 12.dp, vertical = 18.dp),
+            .padding(horizontal = 12.dp, vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("BIU CAR", color = CarGreen, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(28.dp))
+        Surface(
+            color = CarGreenSoft,
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, CarGreen.copy(alpha = 0.42f)),
+            modifier = Modifier.fillMaxWidth().height(44.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text("BIU CAR", color = CarGreen, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        Spacer(Modifier.height(20.dp))
         NavigationItem("首页", Icons.Rounded.Home, selected == RootPage.HOME) { onSelect(RootPage.HOME) }
         Spacer(Modifier.height(8.dp))
         NavigationItem("媒体库", Icons.Rounded.LibraryMusic, selected == RootPage.LIBRARY) { onSelect(RootPage.LIBRARY) }
@@ -226,18 +239,22 @@ private fun CarNavigation(selected: RootPage, onSelect: (RootPage) -> Unit) {
 @Composable
 private fun NavigationItem(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean, onClick: () -> Unit) {
     val color = if (selected) CarGreen else CarMuted
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
-            .background(if (selected) CarSurfaceRaised else Color.Transparent)
+            .height(76.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) CarGreenSoft else Color.Transparent)
             .clickable(onClick = onClick)
-            .padding(vertical = 11.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(26.dp))
-        Spacer(Modifier.height(4.dp))
-        Text(label, color = color, fontSize = 13.sp)
+        if (selected) {
+            Box(Modifier.width(4.dp).fillMaxHeight().background(CarGreen).align(Alignment.CenterStart))
+        }
+        Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(25.dp))
+            Spacer(Modifier.height(4.dp))
+            Text(label, color = color, fontSize = 13.sp, fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal)
+        }
     }
 }
 
@@ -254,7 +271,7 @@ private fun HomeScreen(state: CarUiState, viewModel: CarViewModel) {
             IconButton(
                 onClick = { viewModel.loadHome(reset = true) },
                 enabled = state.selectedHomeMid != null && !homeLoading,
-                modifier = Modifier.size(38.dp),
+                modifier = Modifier.size(48.dp),
             ) {
                 if (homeLoading) {
                     CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
@@ -275,13 +292,17 @@ private fun HomeScreen(state: CarUiState, viewModel: CarViewModel) {
             }
             return@Column
         }
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            state.selectedCreators.forEach { creator ->
-                CompactTab(creator.name, state.selectedHomeMid == creator.mid) { viewModel.selectHomeCreator(creator.mid) }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                state.selectedCreators.forEach { creator ->
+                    CompactTab(creator.name, state.selectedHomeMid == creator.mid) { viewModel.selectHomeCreator(creator.mid) }
+                }
             }
+            Spacer(Modifier.width(12.dp))
+            Text("${state.selectedCreators.size} 位 UP", color = CarMuted, fontSize = 11.sp)
         }
         Spacer(Modifier.height(8.dp))
         val videos = state.homeVideos[state.selectedHomeMid].orEmpty()
@@ -321,7 +342,7 @@ private fun LibraryScreen(state: CarUiState, viewModel: CarViewModel) {
                 IconButton(
                     onClick = { viewModel.refreshFavoriteFolders(refreshGroup) },
                     enabled = !state.favoriteLoading,
-                    modifier = Modifier.size(42.dp),
+                    modifier = Modifier.size(48.dp),
                 ) {
                     if (state.favoriteLoading) {
                         CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
@@ -357,46 +378,107 @@ private fun FavoriteScreen(state: CarUiState, group: FavoriteGroup, viewModel: C
         return
     }
     val folders = state.favoriteFolders[group].orEmpty()
-    Row(Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.width(242.dp).fillMaxHeight().background(CarSurface),
-            contentPadding = PaddingValues(vertical = 4.dp),
+    val selectedFolder = state.selectedFavoriteFolder?.takeIf { it.group == group }
+    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Surface(
+            color = CarSurface,
+            shape = RoundedCornerShape(7.dp),
+            border = BorderStroke(1.dp, CarDivider),
+            modifier = Modifier.width(250.dp).fillMaxHeight(),
         ) {
-            items(folders, key = { "${it.group}:${it.id}" }) { folder ->
-                FolderRow(folder, state.selectedFavoriteFolder?.id == folder.id) { viewModel.selectFavoriteFolder(folder) }
+            Column {
+                Row(
+                    Modifier.fillMaxWidth().height(42.dp).padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("收藏夹", color = CarText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.weight(1f))
+                    Text("${folders.size} 个", color = CarMuted, fontSize = 11.sp)
+                }
+                HorizontalDivider(color = CarDivider)
+                when {
+                    state.favoriteLoading && folders.isEmpty() -> LoadingStatePanel("正在加载收藏夹", Modifier.weight(1f))
+                    state.favoriteFolderErrors[group] != null && folders.isEmpty() -> ListStatePanel(
+                        icon = Icons.Rounded.Refresh,
+                        title = "收藏夹加载失败",
+                        detail = state.favoriteFolderErrors[group],
+                        action = "重试",
+                        modifier = Modifier.weight(1f),
+                        onAction = { viewModel.loadFavoriteFolders(group, forceRefresh = true) },
+                    )
+                    folders.isEmpty() -> ListStatePanel(
+                        icon = Icons.Rounded.LibraryMusic,
+                        title = "暂无收藏夹",
+                        detail = "可在 Bilibili 创建或收藏内容后刷新",
+                        modifier = Modifier.weight(1f),
+                    )
+                    else -> LazyColumn(
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(vertical = 4.dp),
+                    ) {
+                        items(folders, key = { "${it.group}:${it.id}" }) { folder ->
+                            FolderRow(folder, selectedFolder?.id == folder.id) { viewModel.selectFavoriteFolder(folder) }
+                        }
+                    }
+                }
             }
-            if (folders.isEmpty() && !state.favoriteLoading) item { EmptyInline("暂无收藏夹") }
         }
-        Spacer(Modifier.width(12.dp))
-        VideoList(
-            modifier = Modifier.weight(1f),
-            listIdentity = "favorite:${group}:${state.selectedFavoriteFolder?.id}",
-            videos = state.favoriteVideos,
-            loading = state.favoriteLoading,
-            hasMore = state.favoriteHasMore,
-            onPlay = viewModel::playVideo,
-            onLoadMore = viewModel::loadFavoriteVideos,
-            emptyText = "请选择左侧收藏夹",
-        )
+        Column(Modifier.weight(1f).fillMaxHeight()) {
+            Row(
+                Modifier.fillMaxWidth().height(42.dp).padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    selectedFolder?.title ?: "收藏内容",
+                    color = CarText,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                selectedFolder?.let { Text("${it.mediaCount} 项", color = CarMuted, fontSize = 11.sp) }
+            }
+            HorizontalDivider(color = CarDivider)
+            VideoList(
+                modifier = Modifier.weight(1f),
+                listIdentity = "favorite:${group}:${selectedFolder?.id}",
+                videos = state.favoriteVideos,
+                loading = state.favoriteLoading,
+                hasMore = state.favoriteHasMore,
+                onPlay = viewModel::playVideo,
+                onLoadMore = viewModel::loadFavoriteVideos,
+                emptyText = if (selectedFolder == null) "请选择左侧收藏夹" else "此收藏夹暂无内容",
+                errorText = state.favoriteVideoError,
+                onRetry = { viewModel.loadFavoriteVideos(reset = true) },
+            )
+        }
     }
 }
 
 @Composable
 private fun FolderRow(folder: FavoriteFolder, selected: Boolean, onClick: () -> Unit) {
-    Row(
+    Box(
         Modifier
             .fillMaxWidth()
-            .height(54.dp)
+            .height(50.dp)
+            .clip(RoundedCornerShape(5.dp))
             .background(if (selected) CarSurfaceRaised else Color.Transparent)
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Rounded.LibraryMusic, contentDescription = null, tint = if (selected) CarGreen else CarMuted, modifier = Modifier.size(21.dp))
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(folder.title, color = CarText, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${folder.mediaCount} 项", color = CarMuted, fontSize = 11.sp)
+        if (selected) {
+            Box(Modifier.width(3.dp).fillMaxHeight().background(CarGreen).align(Alignment.CenterStart))
+        }
+        Row(
+            Modifier.fillMaxSize().padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Rounded.LibraryMusic, contentDescription = null, tint = if (selected) CarGreen else CarMuted, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(folder.title, color = if (selected) CarGreen else CarText, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${folder.mediaCount} 项", color = CarMuted, fontSize = 10.sp)
+            }
         }
     }
 }
@@ -404,23 +486,48 @@ private fun FolderRow(folder: FavoriteFolder, selected: Boolean, onClick: () -> 
 @Composable
 private fun HistoryScreen(state: CarUiState, viewModel: CarViewModel) {
     Column(Modifier.fillMaxSize()) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth().height(44.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             CompactTab("本地历史", state.historyMode == HistoryMode.LOCAL) { viewModel.selectHistoryMode(HistoryMode.LOCAL) }
             CompactTab("B站历史", state.historyMode == HistoryMode.ONLINE) { viewModel.selectHistoryMode(HistoryMode.ONLINE) }
+            Spacer(Modifier.weight(1f))
+            Text(
+                if (state.historyMode == HistoryMode.LOCAL) {
+                    val cachedCount = state.localHistory.count { it.cacheState == AudioCacheState.READY.name }
+                    "${state.localHistory.size} 条 · $cachedCount 条离线可用"
+                } else {
+                    "已加载 ${state.onlineHistory.size} 条"
+                },
+                color = CarMuted,
+                fontSize = 11.sp,
+            )
             if (state.historyMode == HistoryMode.ONLINE) {
-                IconButton(onClick = { viewModel.loadOnlineHistory(true) }) {
-                    Icon(Icons.Rounded.Refresh, contentDescription = "刷新在线历史", tint = CarMuted)
-                }
+                CompactIconAction(
+                    icon = Icons.Rounded.Refresh,
+                    contentDescription = "刷新在线历史",
+                    loading = state.onlineHistoryLoading,
+                    onClick = { viewModel.loadOnlineHistory(true) },
+                )
             }
         }
         Spacer(Modifier.height(8.dp))
         if (state.historyMode == HistoryMode.LOCAL) {
-            LazyColumn(Modifier.fillMaxSize()) {
-                items(state.localHistory, key = PlaybackHistoryEntity::mediaId) { item ->
-                    HistoryRow(item) { viewModel.playHistory(item) }
-                    HorizontalDivider(color = CarDivider)
+            if (state.localHistory.isEmpty()) {
+                ListStatePanel(
+                    icon = Icons.Rounded.History,
+                    title = "暂无本地播放历史",
+                    detail = "播放过的音频会保留在这里，缓存完成后可离线播放",
+                )
+            } else {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(state.localHistory, key = PlaybackHistoryEntity::mediaId) { item ->
+                        HistoryRow(item) { viewModel.playHistory(item) }
+                        HorizontalDivider(color = CarDivider)
+                    }
                 }
-                if (state.localHistory.isEmpty()) item { EmptyInline("暂无本地播放历史") }
             }
         } else if (!state.account.isLoggedIn) {
             LoginRequired { viewModel.selectLibrary(LibrarySection.ACCOUNT) }
@@ -433,6 +540,8 @@ private fun HistoryScreen(state: CarUiState, viewModel: CarViewModel) {
                 onPlay = viewModel::playVideo,
                 onLoadMore = { viewModel.loadOnlineHistory(false) },
                 emptyText = "暂无在线历史",
+                errorText = state.onlineHistoryError,
+                onRetry = { viewModel.loadOnlineHistory(true) },
             )
         }
     }
@@ -445,6 +554,12 @@ private fun SourcesScreen(state: CarUiState, viewModel: CarViewModel) {
         return
     }
     val focusManager = LocalFocusManager.current
+    val followingMids = state.availableCreators.mapTo(mutableSetOf(), Creator::mid)
+    val candidates = if (state.creatorSourceTab == CreatorSourceTab.FOLLOWING) {
+        state.availableCreators
+    } else {
+        (state.draftCreators.filterNot { it.mid in followingMids } + state.creatorSearchResults).distinctBy(Creator::mid)
+    }
     Column(Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -488,14 +603,34 @@ private fun SourcesScreen(state: CarUiState, viewModel: CarViewModel) {
                 viewModel.selectCreatorSourceTab(CreatorSourceTab.SEARCH)
             }
             Spacer(Modifier.weight(1f))
+            Text(
+                if (state.creatorSourceTab == CreatorSourceTab.FOLLOWING) {
+                    "${state.availableCreators.size} 位关注 · ${state.draftCreatorMids.size} 位已选"
+                } else if (state.creatorSearchAttempted) {
+                    "搜索到 ${state.creatorSearchResults.size} 位 · ${state.draftCreatorMids.size} 位已选"
+                } else {
+                    "支持名称或 UID · ${state.draftCreatorMids.size} 位已选"
+                },
+                color = CarMuted,
+                fontSize = 11.sp,
+            )
             if (state.creatorSourceTab == CreatorSourceTab.FOLLOWING) {
-                IconButton(onClick = viewModel::loadAvailableCreators) {
-                    Icon(Icons.Rounded.Refresh, contentDescription = "刷新关注列表", tint = CarMuted)
-                }
+                CompactIconAction(
+                    icon = Icons.Rounded.Refresh,
+                    contentDescription = "刷新关注列表",
+                    loading = state.sourcesLoading,
+                    onClick = viewModel::loadAvailableCreators,
+                )
             }
         }
         if (state.creatorSourceTab == CreatorSourceTab.SEARCH) {
             Spacer(Modifier.height(6.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("搜索 UP 主", color = CarText, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.width(8.dp))
+                Text("输入名称或 UID 后确认搜索", color = CarMuted, fontSize = 10.sp)
+            }
+            Spacer(Modifier.height(4.dp))
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -527,49 +662,128 @@ private fun SourcesScreen(state: CarUiState, viewModel: CarViewModel) {
                         cursorColor = CarGreen,
                     ),
                 )
-                IconButton(
-                    onClick = viewModel::searchCreators,
+                Button(
+                    onClick = {
+                        viewModel.searchCreators()
+                        focusManager.clearFocus()
+                    },
                     enabled = state.creatorSearchKeyword.isNotBlank() && !state.creatorSearchLoading,
+                    modifier = Modifier.width(96.dp).height(50.dp),
+                    shape = RoundedCornerShape(6.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = CarGreen,
+                        contentColor = Color(0xFF06140C),
+                        disabledContainerColor = CarSurfaceRaised,
+                        disabledContentColor = CarMuted,
+                    ),
                 ) {
                     if (state.creatorSearchLoading) {
-                        CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                        CircularProgressIndicator(color = CarMuted, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
                     } else {
-                        Icon(Icons.Rounded.Search, contentDescription = "搜索 UP 主", tint = CarGreen)
+                        Icon(Icons.Rounded.Search, contentDescription = null, modifier = Modifier.size(18.dp))
                     }
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (state.creatorSearchLoading) "搜索中" else "搜索", fontSize = 12.sp)
                 }
             }
         }
         Spacer(Modifier.height(6.dp))
         HorizontalDivider(color = CarDivider)
-        LazyColumn(Modifier.fillMaxSize()) {
-            val followingMids = state.availableCreators.mapTo(mutableSetOf(), Creator::mid)
-            val candidates = if (state.creatorSourceTab == CreatorSourceTab.FOLLOWING) {
-                state.availableCreators
-            } else {
-                (state.draftCreators.filterNot { it.mid in followingMids } + state.creatorSearchResults).distinctBy(Creator::mid)
-            }
-            items(candidates, key = Creator::mid) { creator ->
-                val selected = creator.mid in state.draftCreatorMids
+        if (
+            state.creatorSourceTab == CreatorSourceTab.SEARCH &&
+            state.creatorSearchAttempted &&
+            state.creatorSearchResults.isEmpty() &&
+            state.creatorSearchError == null &&
+            !state.creatorSearchLoading &&
+            candidates.isNotEmpty()
+        ) {
+            Surface(
+                color = CarSurfaceRaised,
+                shape = RoundedCornerShape(5.dp),
+                border = BorderStroke(1.dp, CarDivider),
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            ) {
                 Row(
-                    Modifier.fillMaxWidth().height(52.dp).clickable { viewModel.toggleCreator(creator) }.padding(horizontal = 8.dp),
+                    Modifier.fillMaxWidth().height(36.dp).padding(horizontal = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(
-                        if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.Add,
-                        contentDescription = if (selected) "取消选择" else "选择",
-                        tint = if (selected) CarGreen else CarMuted,
-                        modifier = Modifier.size(22.dp),
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Text(creator.name, color = CarText, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Spacer(Modifier.weight(1f))
-                    Text("UID ${creator.mid}", color = CarMuted, fontSize = 11.sp)
+                    Icon(Icons.Rounded.Search, contentDescription = null, tint = CarMuted, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("未找到新结果，下方保留已添加的 UP 主", color = CarMuted, fontSize = 11.sp)
                 }
-                HorizontalDivider(color = CarDivider)
             }
-            if (state.sourcesLoading) item { LoadingRow() }
-            if (candidates.isEmpty() && !state.sourcesLoading && !state.creatorSearchLoading) {
-                item { EmptyInline(if (state.creatorSourceTab == CreatorSourceTab.FOLLOWING) "暂无关注的 UP 主" else "输入名称或 UID 搜索 UP 主") }
+        }
+        when {
+            state.sourcesLoading && candidates.isEmpty() -> LoadingStatePanel("正在加载关注列表", Modifier.weight(1f))
+            state.creatorSearchLoading && candidates.isEmpty() -> LoadingStatePanel("正在搜索 UP 主", Modifier.weight(1f))
+            state.creatorSourceTab == CreatorSourceTab.FOLLOWING && state.sourcesError != null && candidates.isEmpty() -> ListStatePanel(
+                icon = Icons.Rounded.Refresh,
+                title = "关注列表加载失败",
+                detail = state.sourcesError,
+                action = "重试",
+                modifier = Modifier.weight(1f),
+                onAction = viewModel::loadAvailableCreators,
+            )
+            state.creatorSourceTab == CreatorSourceTab.SEARCH && state.creatorSearchError != null && candidates.isEmpty() -> ListStatePanel(
+                icon = Icons.Rounded.Search,
+                title = "搜索失败",
+                detail = state.creatorSearchError,
+                action = "重试",
+                modifier = Modifier.weight(1f),
+                onAction = viewModel::searchCreators,
+            )
+            candidates.isEmpty() -> ListStatePanel(
+                icon = if (state.creatorSourceTab == CreatorSourceTab.FOLLOWING) Icons.Rounded.AccountCircle else Icons.Rounded.Search,
+                title = if (state.creatorSourceTab == CreatorSourceTab.FOLLOWING) {
+                    "暂无关注的 UP 主"
+                } else if (state.creatorSearchAttempted) {
+                    "没有找到匹配的 UP 主"
+                } else {
+                    "搜索并添加 UP 主"
+                },
+                detail = if (state.creatorSourceTab == CreatorSourceTab.FOLLOWING) {
+                    "关注 UP 主后刷新列表，或切换到搜索添加"
+                } else if (state.creatorSearchAttempted) {
+                    "可尝试更短的名称关键词，或直接输入 UID"
+                } else {
+                    "支持按名称关键词或 UID 搜索"
+                },
+                modifier = Modifier.weight(1f),
+            )
+            else -> LazyColumn(Modifier.weight(1f)) {
+                items(candidates, key = Creator::mid) { creator ->
+                    val selected = creator.mid in state.draftCreatorMids
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .clip(RoundedCornerShape(5.dp))
+                            .background(if (selected) CarGreenSoft.copy(alpha = 0.62f) else Color.Transparent)
+                            .clickable { viewModel.toggleCreator(creator) }
+                            .padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.Add,
+                            contentDescription = if (selected) "取消选择" else "选择",
+                            tint = if (selected) CarGreen else CarMuted,
+                            modifier = Modifier.size(22.dp),
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            creator.name,
+                            color = if (selected) CarGreen else CarText,
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text("UID ${creator.mid}", color = CarMuted, fontSize = 11.sp)
+                    }
+                    HorizontalDivider(color = CarDivider)
+                }
+                if (state.sourcesLoading || state.creatorSearchLoading) item { LoadingRow("正在加载") }
             }
         }
     }
@@ -608,8 +822,8 @@ private fun AccountScreen(state: CarUiState, viewModel: CarViewModel) {
                         confirmLogout = false
                         viewModel.logout()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD95555), contentColor = Color.White),
-                    shape = RoundedCornerShape(5.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CarDanger, contentColor = Color.White),
+                    shape = RoundedCornerShape(8.dp),
                 ) {
                     Text("退出")
                 }
@@ -621,45 +835,85 @@ private fun AccountScreen(state: CarUiState, viewModel: CarViewModel) {
             },
         )
     }
-    if (state.accountLoading) {
+    if (state.accountLoading && !state.account.isLoggedIn) {
         LoadingRow()
         return
     }
     if (state.account.isLoggedIn) {
-        Row(
-            Modifier.fillMaxSize().padding(horizontal = 28.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(color = CarSurfaceRaised, shape = RoundedCornerShape(6.dp), modifier = Modifier.size(108.dp)) {
-                Icon(Icons.Rounded.AccountCircle, contentDescription = null, tint = CarGreen, modifier = Modifier.padding(18.dp))
-            }
-            Spacer(Modifier.width(28.dp))
-            Column(Modifier.weight(1f)) {
-                Text(state.account.name, color = CarText, fontSize = 25.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(6.dp))
-                Text("UID ${state.account.mid}", color = CarMuted, fontSize = 13.sp)
-            }
-            val refreshingAccountContent = state.accountLoading || state.favoriteLoading || state.onlineHistoryLoading || state.sourcesLoading
-            IconButton(
-                onClick = viewModel::refreshAllAccountContent,
-                enabled = !refreshingAccountContent,
-                modifier = Modifier.size(52.dp),
+        val refreshingAccountContent = state.accountLoading || state.favoriteLoading || state.onlineHistoryLoading || state.sourcesLoading
+        Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Surface(
+                color = CarSurface,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, CarDivider),
+                modifier = Modifier.fillMaxWidth().height(126.dp),
             ) {
-                if (refreshingAccountContent) {
-                    CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
-                } else {
-                    Icon(Icons.Rounded.Refresh, contentDescription = "刷新账号", tint = CarMuted)
+                Row(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(color = CarGreenSoft, shape = RoundedCornerShape(10.dp), modifier = Modifier.size(82.dp)) {
+                        Icon(Icons.Rounded.AccountCircle, contentDescription = null, tint = CarGreen, modifier = Modifier.padding(14.dp))
+                    }
+                    Spacer(Modifier.width(18.dp))
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(state.account.name, color = CarText, fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.width(10.dp))
+                            Surface(color = CarGreenSoft, shape = RoundedCornerShape(50)) {
+                                Text("已登录", color = CarGreen, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp))
+                            }
+                        }
+                        Spacer(Modifier.height(7.dp))
+                        Text("UID ${state.account.mid}", color = CarMuted, fontSize = 13.sp)
+                    }
+                    Button(
+                        onClick = viewModel::refreshAllAccountContent,
+                        enabled = !refreshingAccountContent,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = CarGreenSoft,
+                            contentColor = CarGreen,
+                            disabledContainerColor = CarSurfaceRaised,
+                            disabledContentColor = CarMuted,
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.height(48.dp),
+                    ) {
+                        if (refreshingAccountContent) {
+                            CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                        } else {
+                            Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(Modifier.width(7.dp))
+                        Text(if (refreshingAccountContent) "刷新中" else "刷新全部")
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Button(
+                        onClick = { confirmLogout = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = CarSurfaceRaised, contentColor = CarText),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.height(48.dp),
+                    ) {
+                        Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("退出")
+                    }
                 }
             }
-            Spacer(Modifier.width(8.dp))
-            Button(
-                onClick = { confirmLogout = true },
-                colors = ButtonDefaults.buttonColors(containerColor = CarSurfaceRaised, contentColor = CarText),
-                shape = RoundedCornerShape(5.dp),
-            ) {
-                Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null)
-                Spacer(Modifier.width(6.dp))
-                Text("退出登录")
+            Spacer(Modifier.height(14.dp))
+            Text("内容概览", color = CarText, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AccountMetricCard("我创建的", state.favoriteFolders[FavoriteGroup.CREATED]?.size?.toString() ?: "--", Icons.Rounded.LibraryMusic, Modifier.weight(1f))
+                AccountMetricCard("我收藏的", state.favoriteFolders[FavoriteGroup.COLLECTED]?.size?.toString() ?: "--", Icons.Rounded.FavoriteBorder, Modifier.weight(1f))
+                AccountMetricCard("本地历史", state.localHistory.size.toString(), Icons.Rounded.History, Modifier.weight(1f))
+                AccountMetricCard("我喜欢的", state.likedItems.size.toString(), Icons.Rounded.Favorite, Modifier.weight(1f))
+                AccountMetricCard("首页 UP", state.selectedCreators.size.toString(), Icons.Rounded.Home, Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(12.dp))
+            Surface(color = CarGreenSoft.copy(alpha = 0.72f), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Refresh, contentDescription = null, tint = CarGreen, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("刷新全部会同步账号、两组收藏夹、B站历史和关注 UP 列表", color = CarMuted, fontSize = 12.sp)
+                }
             }
         }
     } else {
@@ -698,6 +952,32 @@ private fun AccountScreen(state: CarUiState, viewModel: CarViewModel) {
                     Spacer(Modifier.width(7.dp))
                     Text(if (qrUrl == null) "生成二维码" else "刷新二维码")
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountMetricCard(
+    label: String,
+    value: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = CarSurface,
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, CarDivider),
+        modifier = modifier.height(78.dp),
+    ) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(color = CarGreenSoft, shape = RoundedCornerShape(7.dp), modifier = Modifier.size(38.dp)) {
+                Icon(icon, contentDescription = null, tint = CarGreen, modifier = Modifier.padding(9.dp))
+            }
+            Spacer(Modifier.width(10.dp))
+            Column {
+                Text(value, color = CarText, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
+                Text(label, color = CarMuted, fontSize = 11.sp, maxLines = 1)
             }
         }
     }
@@ -885,23 +1165,53 @@ private fun ArtworkPlaceholder(url: String, modifier: Modifier = Modifier) {
 
 @Composable
 private fun MiniPlayer(state: CarUiState, viewModel: CarViewModel) {
-    Row(
+    val progress = if (state.durationMs > 0L) {
+        (state.positionMs.toFloat() / state.durationMs.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    Column(
         Modifier
             .fillMaxWidth()
-            .height(66.dp)
+            .height(72.dp)
             .background(CarSurface)
-            .clickable { viewModel.selectRoot(RootPage.PLAYER) }
-            .padding(horizontal = 18.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .clickable { viewModel.selectRoot(RootPage.PLAYER) },
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(state.nowTitle, color = CarText, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(state.nowArtist, color = CarMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Box(Modifier.fillMaxWidth().height(3.dp).background(CarDivider)) {
+            Box(Modifier.fillMaxWidth(progress).fillMaxHeight().background(CarGreen))
         }
-        Text("${formatDuration(state.positionMs)} / ${formatDuration(state.durationMs)}", color = CarMuted, fontSize = 11.sp)
-        Spacer(Modifier.width(14.dp))
-        IconButton(onClick = viewModel::togglePlayback, enabled = state.controllerReady) {
-            Icon(if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = if (state.isPlaying) "暂停" else "播放", tint = CarGreen, modifier = Modifier.size(30.dp))
+        Row(
+            Modifier.fillMaxWidth().weight(1f).padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(color = CarGreenSoft, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Rounded.Equalizer, contentDescription = null, tint = CarGreen, modifier = Modifier.padding(9.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(queueTitleForDisplay(state.nowTitle), color = CarText, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(state.nowArtist.ifBlank { "Biu Car" }, color = CarMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text("${formatDuration(state.positionMs)} / ${formatDuration(state.durationMs)}", color = CarMuted, fontSize = 11.sp)
+            Spacer(Modifier.width(10.dp))
+            IconButton(onClick = viewModel::playPrevious, enabled = state.controllerReady, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Rounded.SkipPrevious, contentDescription = "上一曲", tint = CarText, modifier = Modifier.size(28.dp))
+            }
+            Surface(
+                color = CarGreen,
+                contentColor = Color(0xFF06140C),
+                shape = RoundedCornerShape(50),
+                modifier = Modifier.size(46.dp).clickable(enabled = state.controllerReady, onClick = viewModel::togglePlayback),
+            ) {
+                Icon(
+                    if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = if (state.isPlaying) "暂停" else "播放",
+                    modifier = Modifier.padding(10.dp),
+                )
+            }
+            IconButton(onClick = viewModel::playNext, enabled = state.controllerReady, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Rounded.SkipNext, contentDescription = "下一曲", tint = CarText, modifier = Modifier.size(28.dp))
+            }
         }
     }
 }
@@ -916,6 +1226,8 @@ private fun VideoList(
     onLoadMore: () -> Unit,
     emptyText: String,
     modifier: Modifier = Modifier,
+    errorText: String? = null,
+    onRetry: (() -> Unit)? = null,
 ) {
     // long: 每个 UP、收藏夹和历史列表维护独立滚动位置，切换数据源时不会从旧列表的中间位置开始加载。
     val listState = androidx.compose.runtime.key(listIdentity) { rememberLazyListState() }
@@ -928,20 +1240,38 @@ private fun VideoList(
                 if (lastVisibleIndex >= videos.lastIndex - 2) onLoadMore()
             }
     }
+    if (videos.isEmpty()) {
+        when {
+            loading -> LoadingStatePanel("正在加载内容", modifier.fillMaxSize())
+            errorText != null -> ListStatePanel(
+                icon = Icons.Rounded.Refresh,
+                title = "内容加载失败",
+                detail = errorText,
+                action = if (onRetry != null) "重试" else null,
+                modifier = modifier.fillMaxSize(),
+                onAction = onRetry,
+            )
+            else -> ListStatePanel(
+                icon = Icons.AutoMirrored.Rounded.QueueMusic,
+                title = emptyText,
+                modifier = modifier.fillMaxSize(),
+            )
+        }
+        return
+    }
     LazyColumn(modifier.fillMaxSize(), state = listState) {
         items(videos, key = { video -> "${video.bvid}:${video.cid ?: 0L}" }) { video ->
             VideoRow(video) { onPlay(video) }
             HorizontalDivider(color = CarDivider)
         }
-        if (loading) item { LoadingRow() }
-        if (!loading && videos.isEmpty()) item { EmptyInline(emptyText) }
+        if (loading) item { LoadingRow("正在加载更多") }
     }
 }
 
 @Composable
 private fun VideoRow(video: Video, onPlay: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().height(62.dp).clickable(onClick = onPlay).padding(horizontal = 8.dp),
+        Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(6.dp)).clickable(onClick = onPlay).padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -1027,13 +1357,97 @@ private fun LikedRow(item: LikedMediaEntity, onPlay: () -> Unit) {
 @Composable
 private fun CompactTab(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
-        color = if (selected) CarGreen else CarSurfaceRaised,
-        contentColor = if (selected) Color(0xFF06140C) else CarMuted,
-        shape = RoundedCornerShape(5.dp),
-        modifier = Modifier.height(36.dp).clickable(onClick = onClick),
+        color = if (selected) CarGreenSoft else CarSurfaceRaised,
+        contentColor = if (selected) CarGreen else CarMuted,
+        shape = RoundedCornerShape(7.dp),
+        border = BorderStroke(1.dp, if (selected) CarGreen.copy(alpha = 0.72f) else CarDivider),
+        modifier = Modifier.height(44.dp).clickable(onClick = onClick),
     ) {
-        Box(Modifier.padding(horizontal = 15.dp), contentAlignment = Alignment.Center) {
-            Text(label, fontSize = 12.sp, maxLines = 1)
+        Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+            Text(label, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun CompactIconAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    loading: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = CarSurfaceRaised,
+        contentColor = CarMuted,
+        shape = RoundedCornerShape(7.dp),
+        border = BorderStroke(1.dp, CarDivider),
+        modifier = Modifier.size(44.dp).clickable(enabled = !loading, onClick = onClick),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            if (loading) {
+                CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+            } else {
+                Icon(icon, contentDescription = contentDescription, tint = CarMuted, modifier = Modifier.size(21.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoadingStatePanel(text: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.padding(16.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
+        Spacer(Modifier.height(10.dp))
+        Text(text, color = CarMuted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun ListStatePanel(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    modifier: Modifier = Modifier,
+    detail: String? = null,
+    action: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    Column(
+        modifier = modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Surface(color = CarGreenSoft, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(42.dp)) {
+            Icon(icon, contentDescription = null, tint = CarGreen, modifier = Modifier.padding(10.dp))
+        }
+        Spacer(Modifier.height(9.dp))
+        Text(title, color = CarText, fontSize = 14.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+        detail?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                it,
+                color = CarMuted,
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (action != null && onAction != null) {
+            Spacer(Modifier.height(10.dp))
+            Button(
+                onClick = onAction,
+                colors = ButtonDefaults.buttonColors(containerColor = CarGreen, contentColor = Color(0xFF06140C)),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.height(44.dp),
+                contentPadding = PaddingValues(horizontal = 18.dp),
+            ) {
+                Text(action, fontSize = 12.sp)
+            }
         }
     }
 }
@@ -1059,9 +1473,15 @@ private fun LoginRequired(onClick: () -> Unit) {
 }
 
 @Composable
-private fun LoadingRow() {
-    Box(Modifier.fillMaxWidth().height(52.dp), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+private fun LoadingRow(text: String = "正在加载") {
+    Row(
+        Modifier.fillMaxWidth().height(52.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(9.dp))
+        Text(text, color = CarMuted, fontSize = 11.sp)
     }
 }
 

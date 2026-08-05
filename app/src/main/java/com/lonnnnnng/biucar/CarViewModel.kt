@@ -78,18 +78,24 @@ data class CarUiState(
     val creatorSearchKeyword: String = "",
     val creatorSearchResults: List<Creator> = emptyList(),
     val creatorSearchLoading: Boolean = false,
+    val creatorSearchAttempted: Boolean = false,
+    val creatorSearchError: String? = null,
     val draftCreators: List<Creator> = emptyList(),
     val sourcesLoading: Boolean = false,
+    val sourcesError: String? = null,
     val sourceSaveInProgress: Boolean = false,
     val favoriteFolders: Map<FavoriteGroup, List<FavoriteFolder>> = emptyMap(),
+    val favoriteFolderErrors: Map<FavoriteGroup, String> = emptyMap(),
     val selectedFavoriteFolder: FavoriteFolder? = null,
     val favoriteVideos: List<Video> = emptyList(),
     val favoritePage: Int = 0,
     val favoriteHasMore: Boolean = false,
     val favoriteLoading: Boolean = false,
+    val favoriteVideoError: String? = null,
     val onlineHistory: List<Video> = emptyList(),
     val historyCursor: HistoryCursor? = null,
     val onlineHistoryLoading: Boolean = false,
+    val onlineHistoryError: String? = null,
     val localHistory: List<PlaybackHistoryEntity> = emptyList(),
     val likedItems: List<LikedMediaEntity> = emptyList(),
     val controllerReady: Boolean = false,
@@ -452,26 +458,36 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         if (!account.isLoggedIn || account.mid <= 0L || _uiState.value.sourcesLoading) return
         creatorsJob?.cancel()
         creatorsJob = viewModelScope.launch {
-            _uiState.update { it.copy(sourcesLoading = true) }
+            _uiState.update { it.copy(sourcesLoading = true, sourcesError = null) }
             try {
                 val creators = container.bilibiliRepository.followingCreators(account.mid)
                 _uiState.update {
                     it.copy(
                         availableCreators = creators,
                         sourcesLoading = false,
+                        sourcesError = null,
                     )
                 }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                _uiState.update { it.copy(sourcesLoading = false) }
+                // long: 关注列表失败后保留页面内错误状态，车机用户无需等待短暂提示即可直接重试。
+                _uiState.update { it.copy(sourcesLoading = false, sourcesError = "关注列表加载失败，请检查网络后重试") }
                 showError("关注列表加载失败", error)
             }
         }
     }
 
     fun updateCreatorSearchKeyword(keyword: String) {
-        _uiState.update { it.copy(creatorSearchKeyword = keyword) }
+        // long: 用户开始修改关键词时立即清除上一次结果，避免车机横屏中把旧候选误认为新关键词的搜索结果。
+        _uiState.update {
+            it.copy(
+                creatorSearchKeyword = keyword,
+                creatorSearchResults = emptyList(),
+                creatorSearchAttempted = false,
+                creatorSearchError = null,
+            )
+        }
     }
 
     fun selectCreatorSourceTab(tab: CreatorSourceTab) {
@@ -484,14 +500,32 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         if (keyword.isBlank() || _uiState.value.creatorSearchLoading) return
         creatorSearchJob?.cancel()
         creatorSearchJob = viewModelScope.launch {
-            _uiState.update { it.copy(creatorSearchLoading = true, creatorSearchResults = emptyList()) }
+            _uiState.update {
+                it.copy(
+                    creatorSearchLoading = true,
+                    creatorSearchAttempted = true,
+                    creatorSearchError = null,
+                    creatorSearchResults = emptyList(),
+                )
+            }
             try {
                 val result = container.bilibiliRepository.searchCreators(keyword)
-                _uiState.update { it.copy(creatorSearchResults = result.items, creatorSearchLoading = false) }
+                _uiState.update {
+                    it.copy(
+                        creatorSearchResults = result.items,
+                        creatorSearchLoading = false,
+                        creatorSearchError = null,
+                    )
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                _uiState.update { it.copy(creatorSearchLoading = false) }
+                _uiState.update {
+                    it.copy(
+                        creatorSearchLoading = false,
+                        creatorSearchError = "UP 主搜索失败，请检查关键词或网络后重试",
+                    )
+                }
                 showError("UP 主搜索失败", error)
             }
         }
@@ -549,10 +583,21 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         }
         val selectedFolderId = state.selectedFavoriteFolder?.takeIf { it.group == group }?.id
         favoriteFoldersJob = viewModelScope.launch {
-            _uiState.update { it.copy(favoriteLoading = true) }
+            _uiState.update {
+                it.copy(
+                    favoriteLoading = true,
+                    favoriteFolderErrors = it.favoriteFolderErrors - group,
+                )
+            }
             try {
                 val folders = container.bilibiliRepository.favoriteFolders(state.account.mid, group)
-                _uiState.update { it.copy(favoriteFolders = it.favoriteFolders + (group to folders), favoriteLoading = false) }
+                _uiState.update {
+                    it.copy(
+                        favoriteFolders = it.favoriteFolders + (group to folders),
+                        favoriteFolderErrors = it.favoriteFolderErrors - group,
+                        favoriteLoading = false,
+                    )
+                }
                 // long: 手动刷新收藏夹时保留当前目录，避免驾驶途中刷新后视线和操作焦点突然跳回第一项。
                 selectFavoriteFolder(
                     folders.firstOrNull { it.id == selectedFolderId } ?: folders.firstOrNull(),
@@ -561,7 +606,12 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                _uiState.update { it.copy(favoriteLoading = false) }
+                _uiState.update {
+                    it.copy(
+                        favoriteLoading = false,
+                        favoriteFolderErrors = it.favoriteFolderErrors + (group to "收藏夹加载失败，请检查网络后重试"),
+                    )
+                }
                 showError("收藏夹加载失败", error)
             }
         }
@@ -574,7 +624,13 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     fun selectFavoriteFolder(folder: FavoriteFolder?, forceReload: Boolean = false) {
         if (!forceReload && folder != null && folder == _uiState.value.selectedFavoriteFolder && _uiState.value.favoriteVideos.isNotEmpty()) return
         _uiState.update {
-            it.copy(selectedFavoriteFolder = folder, favoriteVideos = emptyList(), favoritePage = 0, favoriteHasMore = false)
+            it.copy(
+                selectedFavoriteFolder = folder,
+                favoriteVideos = emptyList(),
+                favoritePage = 0,
+                favoriteHasMore = false,
+                favoriteVideoError = null,
+            )
         }
         folder?.let { loadFavoriteVideos(reset = true) }
     }
@@ -584,7 +640,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         if (_uiState.value.favoriteLoading) return
         val page = if (reset) 1 else _uiState.value.favoritePage + 1
         favoriteVideosJob = viewModelScope.launch {
-            _uiState.update { it.copy(favoriteLoading = true) }
+            _uiState.update { it.copy(favoriteLoading = true, favoriteVideoError = null) }
             try {
                 val result = container.bilibiliRepository.favoriteVideos(folder, page)
                 _uiState.update {
@@ -594,12 +650,18 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
                         favoritePage = result.page,
                         favoriteHasMore = result.hasMore,
                         favoriteLoading = false,
+                        favoriteVideoError = null,
                     )
                 }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                _uiState.update { it.copy(favoriteLoading = false) }
+                _uiState.update {
+                    it.copy(
+                        favoriteLoading = false,
+                        favoriteVideoError = "收藏内容加载失败，请检查网络后重试",
+                    )
+                }
                 showError("收藏内容加载失败", error)
             }
         }
@@ -608,7 +670,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     fun loadOnlineHistory(reset: Boolean = false) {
         if (!_uiState.value.account.isLoggedIn || _uiState.value.onlineHistoryLoading) return
         onlineHistoryJob = viewModelScope.launch {
-            _uiState.update { it.copy(onlineHistoryLoading = true) }
+            _uiState.update { it.copy(onlineHistoryLoading = true, onlineHistoryError = null) }
             try {
                 val result = container.bilibiliRepository.onlineHistory(if (reset) null else _uiState.value.historyCursor)
                 _uiState.update {
@@ -617,12 +679,18 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
                         onlineHistory = (previous + result.items).distinctBy { video -> "${video.bvid}:${video.cid}" },
                         historyCursor = result.nextCursor,
                         onlineHistoryLoading = false,
+                        onlineHistoryError = null,
                     )
                 }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                _uiState.update { it.copy(onlineHistoryLoading = false) }
+                _uiState.update {
+                    it.copy(
+                        onlineHistoryLoading = false,
+                        onlineHistoryError = "B站历史加载失败，请检查网络后重试",
+                    )
+                }
                 showError("在线历史加载失败", error)
             }
         }

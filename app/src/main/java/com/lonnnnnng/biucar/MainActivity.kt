@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -50,6 +51,7 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
@@ -93,6 +95,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -231,7 +234,7 @@ private fun CarNavigation(selected: RootPage, onSelect: (RootPage) -> Unit) {
         Spacer(Modifier.height(8.dp))
         NavigationItem("媒体库", Icons.Rounded.LibraryMusic, selected == RootPage.LIBRARY) { onSelect(RootPage.LIBRARY) }
         Spacer(Modifier.height(8.dp))
-        NavigationItem("播放", Icons.Rounded.Equalizer, selected == RootPage.PLAYER) { onSelect(RootPage.PLAYER) }
+        NavigationItem("播放", Icons.Rounded.PlayCircle, selected == RootPage.PLAYER) { onSelect(RootPage.PLAYER) }
         Spacer(Modifier.weight(1f))
     }
 }
@@ -824,12 +827,16 @@ private fun AccountScreen(state: CarUiState, viewModel: CarViewModel) {
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = CarDanger, contentColor = Color.White),
                     shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.widthIn(min = 88.dp).height(48.dp),
                 ) {
                     Text("退出")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { confirmLogout = false }) {
+                TextButton(
+                    onClick = { confirmLogout = false },
+                    modifier = Modifier.widthIn(min = 88.dp).height(48.dp),
+                ) {
                     Text("取消", color = CarText)
                 }
             },
@@ -855,7 +862,15 @@ private fun AccountScreen(state: CarUiState, viewModel: CarViewModel) {
                     Spacer(Modifier.width(18.dp))
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(state.account.name, color = CarText, fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                state.account.name,
+                                color = CarText,
+                                fontSize = 23.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
                             Spacer(Modifier.width(10.dp))
                             Surface(color = CarGreenSoft, shape = RoundedCornerShape(50)) {
                                 Text("已登录", color = CarGreen, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp))
@@ -990,6 +1005,11 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
     // long: 拖动期间只更新本地预览，松手后再执行一次 Seek，避免旧车机连续重建网络缓冲造成卡顿和播放失败。
     var pendingSeekMs by remember(currentMediaId) { mutableLongStateOf(-1L) }
     val displayedPositionMs = pendingSeekMs.takeIf { it >= 0L } ?: state.positionMs
+    val safeDisplayedPositionMs = if (state.durationMs > 0L) {
+        displayedPositionMs.coerceIn(0L, state.durationMs)
+    } else {
+        0L
+    }
     LaunchedEffect(state.currentQueueIndex, state.isMultiPage) {
         if (state.isMultiPage && state.currentQueueIndex in state.playbackQueue.indices) {
             // long: 自动切到下一 P 时同步移动左侧列表，驾驶过程中无需再手动寻找当前曲目。
@@ -1023,22 +1043,41 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                         contentPadding = PaddingValues(vertical = 5.dp),
                     ) {
                         itemsIndexed(state.playbackQueue, key = { _, item -> item.mediaId }) { index, item ->
+                            val active = index == state.currentQueueIndex
                             Row(
                                 Modifier
                                     .fillMaxWidth()
                                     .height(52.dp)
                                     .clip(RoundedCornerShape(4.dp))
-                                    .background(if (index == state.currentQueueIndex) CarSurfaceRaised else Color.Transparent)
-                                    .clickable { viewModel.selectQueueItem(index) }
-                                    .padding(horizontal = 8.dp),
+                                    .background(if (active) CarSurfaceRaised else Color.Transparent)
+                                    .clickable { viewModel.selectQueueItem(index) },
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
+                                Box(
+                                    Modifier
+                                        .width(3.dp)
+                                        .fillMaxHeight()
+                                        .background(if (active) CarGreen else Color.Transparent),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                                    if (active) {
+                                        Icon(
+                                            if (state.isPlaying) Icons.Rounded.Equalizer else Icons.Rounded.PlayArrow,
+                                            contentDescription = if (state.isPlaying) "正在播放" else "当前曲目",
+                                            tint = CarGreen,
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.width(7.dp))
                                 Text(
                                     queueTitleForDisplay(item.title),
-                                    color = if (index == state.currentQueueIndex) CarText else CarMuted,
+                                    color = if (active) CarText else CarMuted,
                                     fontSize = 17.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f).padding(end = 8.dp),
                                 )
                             }
                         }
@@ -1067,7 +1106,7 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
             Text(state.nowArtist.ifBlank { "Biu Car" }, color = CarMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(28.dp))
             Slider(
-                value = displayedPositionMs.coerceAtMost(state.durationMs).toFloat(),
+                value = safeDisplayedPositionMs.toFloat(),
                 onValueChange = { pendingSeekMs = it.toLong() },
                 onValueChangeFinished = {
                     pendingSeekMs.takeIf { it >= 0L }?.let(viewModel::seekTo)
@@ -1078,7 +1117,7 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                 colors = SliderDefaults.colors(thumbColor = CarGreen, activeTrackColor = CarGreen, inactiveTrackColor = CarDivider),
             )
             Row(Modifier.fillMaxWidth()) {
-                Text(formatDuration(displayedPositionMs), color = CarMuted, fontSize = 12.sp)
+                Text(formatDuration(safeDisplayedPositionMs), color = CarMuted, fontSize = 12.sp)
                 Spacer(Modifier.weight(1f))
                 Text(formatDuration(state.durationMs), color = CarMuted, fontSize = 12.sp)
             }
@@ -1088,22 +1127,30 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
-                IconButton(onClick = viewModel::cyclePlaybackOrder, enabled = state.controllerReady) {
-                    Icon(
-                        if (state.shuffleEnabled) Icons.Rounded.Shuffle else if (state.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                        contentDescription = playbackOrderLabel(state.repeatMode, state.shuffleEnabled),
-                        tint = if (state.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF && !state.shuffleEnabled) CarMuted else CarGreen,
-                        modifier = Modifier.size(30.dp),
-                    )
-                }
-                IconButton(onClick = viewModel::playPrevious, enabled = state.controllerReady) {
-                    Icon(Icons.Rounded.SkipPrevious, contentDescription = "上一曲", tint = CarText, modifier = Modifier.size(32.dp))
-                }
+                PlaybackControlButton(
+                    icon = if (state.shuffleEnabled) Icons.Rounded.Shuffle else if (state.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                    contentDescription = playbackOrderLabel(state.repeatMode, state.shuffleEnabled),
+                    enabled = state.controllerReady,
+                    tint = if (state.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF && !state.shuffleEnabled) CarMuted else CarGreen,
+                    onClick = viewModel::cyclePlaybackOrder,
+                )
+                PlaybackControlButton(
+                    icon = Icons.Rounded.SkipPrevious,
+                    contentDescription = "上一曲",
+                    enabled = state.controllerReady,
+                    tint = CarText,
+                    iconSize = 34.dp,
+                    onClick = viewModel::playPrevious,
+                )
                 Surface(
-                    color = CarGreen,
-                    contentColor = Color(0xFF06140C),
+                    color = if (state.controllerReady) CarGreen else CarSurfaceRaised,
+                    contentColor = if (state.controllerReady) Color(0xFF06140C) else CarMuted.copy(alpha = 0.45f),
                     shape = RoundedCornerShape(50),
-                    modifier = Modifier.size(62.dp).clickable(enabled = state.controllerReady, onClick = viewModel::togglePlayback),
+                    modifier = Modifier.size(64.dp).clickable(
+                        enabled = state.controllerReady,
+                        role = Role.Button,
+                        onClick = viewModel::togglePlayback,
+                    ),
                 ) {
                     Icon(
                         if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
@@ -1111,19 +1158,47 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                         modifier = Modifier.padding(14.dp),
                     )
                 }
-                IconButton(onClick = viewModel::playNext, enabled = state.controllerReady) {
-                    Icon(Icons.Rounded.SkipNext, contentDescription = "下一曲", tint = CarText, modifier = Modifier.size(32.dp))
-                }
-                IconButton(onClick = viewModel::toggleLiked, enabled = state.controllerReady) {
-                    Icon(
-                        if (state.liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                        contentDescription = if (state.liked) "取消喜欢" else "喜欢",
-                        tint = if (state.liked) CarGreen else CarMuted,
-                        modifier = Modifier.size(28.dp),
-                    )
-                }
+                PlaybackControlButton(
+                    icon = Icons.Rounded.SkipNext,
+                    contentDescription = "下一曲",
+                    enabled = state.controllerReady,
+                    tint = CarText,
+                    iconSize = 34.dp,
+                    onClick = viewModel::playNext,
+                )
+                PlaybackControlButton(
+                    icon = if (state.liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                    contentDescription = if (state.liked) "取消喜欢" else "喜欢",
+                    enabled = state.controllerReady,
+                    tint = if (state.liked) CarGreen else CarMuted,
+                    onClick = viewModel::toggleLiked,
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun PlaybackControlButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    enabled: Boolean,
+    tint: Color,
+    buttonSize: androidx.compose.ui.unit.Dp = 56.dp,
+    iconSize: androidx.compose.ui.unit.Dp = 30.dp,
+    onClick: () -> Unit,
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.size(buttonSize),
+    ) {
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            tint = if (enabled) tint else CarMuted.copy(alpha = 0.35f),
+            modifier = Modifier.size(iconSize),
+        )
     }
 }
 
@@ -1170,12 +1245,12 @@ private fun MiniPlayer(state: CarUiState, viewModel: CarViewModel) {
     } else {
         0f
     }
+    val safePositionMs = if (state.durationMs > 0L) state.positionMs.coerceIn(0L, state.durationMs) else 0L
     Column(
         Modifier
             .fillMaxWidth()
             .height(72.dp)
-            .background(CarSurface)
-            .clickable { viewModel.selectRoot(RootPage.PLAYER) },
+            .background(CarSurface),
     ) {
         Box(Modifier.fillMaxWidth().height(3.dp).background(CarDivider)) {
             Box(Modifier.fillMaxWidth(progress).fillMaxHeight().background(CarGreen))
@@ -1184,24 +1259,52 @@ private fun MiniPlayer(state: CarUiState, viewModel: CarViewModel) {
             Modifier.fillMaxWidth().weight(1f).padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(color = CarGreenSoft, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Rounded.Equalizer, contentDescription = null, tint = CarGreen, modifier = Modifier.padding(9.dp))
+            Row(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable(role = Role.Button) { viewModel.selectRoot(RootPage.PLAYER) }
+                    .padding(end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(color = CarGreenSoft, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Rounded.Equalizer, contentDescription = null, tint = CarGreen, modifier = Modifier.padding(9.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(queueTitleForDisplay(state.nowTitle), color = CarText, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(state.nowArtist.ifBlank { "Biu Car" }, color = CarMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text(
+                    "${formatDuration(safePositionMs)} / ${formatDuration(state.durationMs)}",
+                    color = CarMuted,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    softWrap = false,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.width(86.dp),
+                )
             }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(queueTitleForDisplay(state.nowTitle), color = CarText, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(state.nowArtist.ifBlank { "Biu Car" }, color = CarMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Text("${formatDuration(state.positionMs)} / ${formatDuration(state.durationMs)}", color = CarMuted, fontSize = 11.sp)
-            Spacer(Modifier.width(10.dp))
-            IconButton(onClick = viewModel::playPrevious, enabled = state.controllerReady, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Rounded.SkipPrevious, contentDescription = "上一曲", tint = CarText, modifier = Modifier.size(28.dp))
-            }
+            Spacer(Modifier.width(4.dp))
+            PlaybackControlButton(
+                icon = Icons.Rounded.SkipPrevious,
+                contentDescription = "上一曲",
+                enabled = state.controllerReady,
+                tint = CarText,
+                buttonSize = 48.dp,
+                iconSize = 28.dp,
+                onClick = viewModel::playPrevious,
+            )
             Surface(
-                color = CarGreen,
-                contentColor = Color(0xFF06140C),
+                color = if (state.controllerReady) CarGreen else CarSurfaceRaised,
+                contentColor = if (state.controllerReady) Color(0xFF06140C) else CarMuted.copy(alpha = 0.45f),
                 shape = RoundedCornerShape(50),
-                modifier = Modifier.size(46.dp).clickable(enabled = state.controllerReady, onClick = viewModel::togglePlayback),
+                modifier = Modifier.size(48.dp).clickable(
+                    enabled = state.controllerReady,
+                    role = Role.Button,
+                    onClick = viewModel::togglePlayback,
+                ),
             ) {
                 Icon(
                     if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
@@ -1209,9 +1312,15 @@ private fun MiniPlayer(state: CarUiState, viewModel: CarViewModel) {
                     modifier = Modifier.padding(10.dp),
                 )
             }
-            IconButton(onClick = viewModel::playNext, enabled = state.controllerReady, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Rounded.SkipNext, contentDescription = "下一曲", tint = CarText, modifier = Modifier.size(28.dp))
-            }
+            PlaybackControlButton(
+                icon = Icons.Rounded.SkipNext,
+                contentDescription = "下一曲",
+                enabled = state.controllerReady,
+                tint = CarText,
+                buttonSize = 48.dp,
+                iconSize = 28.dp,
+                onClick = viewModel::playNext,
+            )
         }
     }
 }
@@ -1271,19 +1380,19 @@ private fun VideoList(
 @Composable
 private fun VideoRow(video: Video, onPlay: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(6.dp)).clickable(onClick = onPlay).padding(horizontal = 10.dp),
+        Modifier.fillMaxWidth().height(68.dp).clip(RoundedCornerShape(6.dp)).clickable(onClick = onPlay).padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(video.title, color = CarText, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(3.dp))
+            Text(video.title, color = CarText, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(4.dp))
             Row {
-                Text(video.author, color = CarMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                video.publishedAtEpochSeconds?.let { Text(formatDate(it), color = CarMuted, fontSize = 11.sp) }
+                Text(video.author, color = CarMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                video.publishedAtEpochSeconds?.let { Text(formatDate(it), color = CarMuted, fontSize = 12.sp) }
             }
         }
         Spacer(Modifier.width(12.dp))
-        video.durationSeconds?.let { Text(formatDuration(it * 1_000L), color = CarMuted, fontSize = 11.sp) }
+        video.durationSeconds?.let { Text(formatDuration(it * 1_000L), color = CarMuted, fontSize = 12.sp) }
         Icon(Icons.Rounded.PlayArrow, contentDescription = "播放", tint = CarGreen, modifier = Modifier.size(28.dp))
     }
 }

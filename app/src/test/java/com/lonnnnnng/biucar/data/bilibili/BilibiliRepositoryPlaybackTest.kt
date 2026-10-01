@@ -48,6 +48,7 @@ class BilibiliRepositoryPlaybackTest {
         // long: Media3 只有收到完整的分 P 队列才会在当前 P 结束后自动前进，不能把多 P 再压回首个音轨。
         assertEquals(listOf(101L, 102L), tracks.map { it.cid })
         assertEquals(listOf("P1 · 第一首", "P2 · 第二首"), tracks.map { it.pageTitle })
+        assertEquals(listOf(180_000L, 200_000L), tracks.map { it.durationMs })
     }
 
     @Test

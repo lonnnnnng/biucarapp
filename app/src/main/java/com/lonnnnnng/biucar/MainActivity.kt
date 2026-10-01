@@ -1,16 +1,23 @@
 package com.lonnnnnng.biucar
 
+import android.Manifest
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
+import android.os.Build
+import android.util.LruCache
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
@@ -114,6 +121,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.net.URL
+import java.net.HttpURLConnection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
@@ -130,6 +138,9 @@ private val CarDanger = Color(0xFFE66A6A)
 
 class MainActivity : ComponentActivity() {
     private val viewModel: CarViewModel by viewModels()
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { }
 
     @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -142,6 +153,7 @@ class MainActivity : ComponentActivity() {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
         }
+        requestNotificationPermissionIfNeeded()
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(
@@ -156,6 +168,16 @@ class MainActivity : ComponentActivity() {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
                 CarApp(state, viewModel)
             }
+        }
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            // long: Media3 通知承载车机锁屏和系统媒体按钮，首次进入应用时主动申请权限，避免播放已开始才发现通知不可见。
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 }
@@ -216,7 +238,8 @@ private fun CarNavigation(selected: RootPage, onSelect: (RootPage) -> Unit) {
             .width(126.dp)
             .fillMaxHeight()
             .background(CarSurface)
-            .padding(horizontal = 12.dp, vertical = 14.dp),
+            .padding(horizontal = 12.dp, vertical = 14.dp)
+            .focusGroup(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Surface(
@@ -248,7 +271,8 @@ private fun NavigationItem(label: String, icon: androidx.compose.ui.graphics.vec
             .height(76.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(if (selected) CarGreenSoft else Color.Transparent)
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
+            .focusable(),
     ) {
         if (selected) {
             Box(Modifier.width(4.dp).fillMaxHeight().background(CarGreen).align(Alignment.CenterStart))
@@ -467,7 +491,8 @@ private fun FolderRow(folder: FavoriteFolder, selected: Boolean, onClick: () -> 
             .height(50.dp)
             .clip(RoundedCornerShape(5.dp))
             .background(if (selected) CarSurfaceRaised else Color.Transparent)
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
+            .focusable(),
     ) {
         if (selected) {
             Box(Modifier.width(3.dp).fillMaxHeight().background(CarGreen).align(Alignment.CenterStart))
@@ -1050,7 +1075,8 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                                     .height(52.dp)
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(if (active) CarSurfaceRaised else Color.Transparent)
-                                    .clickable { viewModel.selectQueueItem(index) },
+                                    .clickable(role = Role.Button) { viewModel.selectQueueItem(index) }
+                                    .focusable(),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Box(
@@ -1214,9 +1240,7 @@ private fun queueTitleForDisplay(title: String): String = title.substringAfter("
 @Composable
 private fun ArtworkPlaceholder(url: String, modifier: Modifier = Modifier) {
     val bitmap by androidx.compose.runtime.produceState<Bitmap?>(initialValue = null, key1 = url) {
-        value = if (url.isBlank()) null else withContext(Dispatchers.IO) {
-            runCatching { URL(url).openStream().use(BitmapFactory::decodeStream) }.getOrNull()
-        }
+        value = if (url.isBlank()) null else loadArtworkBitmap(url)
     }
     val artworkAspectRatio = bitmap?.takeIf { it.width > 0 && it.height > 0 }
         ?.let { it.width.toFloat() / it.height.toFloat() }
@@ -1236,6 +1260,50 @@ private fun ArtworkPlaceholder(url: String, modifier: Modifier = Modifier) {
             )
         }
     }
+}
+
+private val artworkCache = object : LruCache<String, Bitmap>(6 * 1024) {
+    override fun sizeOf(key: String, value: Bitmap): Int = value.allocationByteCount / 1024
+}
+
+private suspend fun loadArtworkBitmap(url: String): Bitmap? = withContext(Dispatchers.IO) {
+    artworkCache.get(url)?.let { return@withContext it }
+    runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        openArtworkConnection(url).readBitmap { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = artworkSampleSize(bounds.outWidth, bounds.outHeight)
+            inPreferredConfig = Bitmap.Config.RGB_565
+        }
+        val bitmap = openArtworkConnection(url).readBitmap {
+            BitmapFactory.decodeStream(it, null, options)
+        } ?: return@runCatching null
+        artworkCache.put(url, bitmap)
+        bitmap
+    }.getOrNull()
+}
+
+private fun openArtworkConnection(url: String): HttpURLConnection =
+    (URL(url).openConnection() as HttpURLConnection).apply {
+        connectTimeout = 8_000
+        readTimeout = 8_000
+        instanceFollowRedirects = true
+        useCaches = true
+    }
+
+private inline fun <T> HttpURLConnection.readBitmap(block: (java.io.InputStream) -> T): T {
+    return try {
+        inputStream.use(block)
+    } finally {
+        disconnect()
+    }
+}
+
+private fun artworkSampleSize(width: Int, height: Int): Int {
+    var sample = 1
+    while (width / sample > 640 || height / sample > 360) sample *= 2
+    return sample
 }
 
 @Composable
@@ -1380,7 +1448,10 @@ private fun VideoList(
 @Composable
 private fun VideoRow(video: Video, onPlay: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().height(68.dp).clip(RoundedCornerShape(6.dp)).clickable(onClick = onPlay).padding(horizontal = 10.dp),
+        Modifier.fillMaxWidth().height(68.dp).clip(RoundedCornerShape(6.dp))
+            .clickable(role = Role.Button, onClick = onPlay)
+            .focusable()
+            .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -1401,7 +1472,10 @@ private fun VideoRow(video: Video, onPlay: () -> Unit) {
 private fun HistoryRow(item: PlaybackHistoryEntity, onPlay: () -> Unit) {
     val cacheState = runCatching { AudioCacheState.valueOf(item.cacheState) }.getOrDefault(AudioCacheState.NONE)
     Row(
-        Modifier.fillMaxWidth().height(62.dp).clickable(onClick = onPlay).padding(horizontal = 8.dp),
+        Modifier.fillMaxWidth().height(62.dp)
+            .clickable(role = Role.Button, onClick = onPlay)
+            .focusable()
+            .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (cacheState == AudioCacheState.CACHING) {
@@ -1447,7 +1521,10 @@ private fun cacheStatusLabel(state: AudioCacheState): String = when (state) {
 @Composable
 private fun LikedRow(item: LikedMediaEntity, onPlay: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().height(62.dp).clickable(onClick = onPlay).padding(horizontal = 8.dp),
+        Modifier.fillMaxWidth().height(62.dp)
+            .clickable(role = Role.Button, onClick = onPlay)
+            .focusable()
+            .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Icons.Rounded.Favorite, contentDescription = null, tint = CarGreen, modifier = Modifier.size(24.dp))
@@ -1470,7 +1547,9 @@ private fun CompactTab(label: String, selected: Boolean, onClick: () -> Unit) {
         contentColor = if (selected) CarGreen else CarMuted,
         shape = RoundedCornerShape(7.dp),
         border = BorderStroke(1.dp, if (selected) CarGreen.copy(alpha = 0.72f) else CarDivider),
-        modifier = Modifier.height(44.dp).clickable(onClick = onClick),
+        modifier = Modifier.height(44.dp)
+            .clickable(role = Role.Tab, onClick = onClick)
+            .focusable(),
     ) {
         Box(Modifier.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
             Text(label, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal, maxLines = 1)
@@ -1490,7 +1569,9 @@ private fun CompactIconAction(
         contentColor = CarMuted,
         shape = RoundedCornerShape(7.dp),
         border = BorderStroke(1.dp, CarDivider),
-        modifier = Modifier.size(44.dp).clickable(enabled = !loading, onClick = onClick),
+        modifier = Modifier.size(44.dp)
+            .clickable(enabled = !loading, role = Role.Button, onClick = onClick)
+            .focusable(),
     ) {
         Box(contentAlignment = Alignment.Center) {
             if (loading) {

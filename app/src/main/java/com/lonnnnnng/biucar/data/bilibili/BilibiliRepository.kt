@@ -288,6 +288,7 @@ class BilibiliRepository(
             qualityLabel = audio?.let { "${it.optLong("bandwidth", 0L) / 1000L} kbps" } ?: "兼容流",
             // long: 合并 MP4 的 CDN URL 经常没有扩展名，显式 MIME 让旧版车机的 Media3 直接走 MP4 解析器；DASH 音频仍按音频 MP4 处理。
             mimeType = if (audio != null) MimeTypes.AUDIO_MP4 else MimeTypes.VIDEO_MP4,
+            durationMs = page.durationSeconds.coerceAtLeast(0).toLong() * 1_000L,
         )
     }
 

@@ -81,11 +81,14 @@ interface PlaybackHistoryDao {
     @Query("SELECT * FROM playback_history WHERE mediaId = :mediaId LIMIT 1")
     suspend fun find(mediaId: String): PlaybackHistoryEntity?
 
+    @Query("SELECT * FROM playback_history ORDER BY playedAtEpochMs DESC LIMIT 1")
+    suspend fun latest(): PlaybackHistoryEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: PlaybackHistoryEntity)
 
-    @Query("UPDATE playback_history SET lastPositionMs = :positionMs, durationMs = :durationMs WHERE mediaId = :mediaId")
-    suspend fun updateProgress(mediaId: String, positionMs: Long, durationMs: Long)
+    @Query("UPDATE playback_history SET lastPositionMs = :positionMs, durationMs = CASE WHEN :durationMs > 0 THEN :durationMs ELSE durationMs END WHERE mediaId = :mediaId")
+    suspend fun updateProgress(mediaId: String, positionMs: Long, durationMs: Long): Int
 
     @Query("UPDATE playback_history SET localFilePath = :path, cacheState = :state WHERE mediaId = :mediaId")
     suspend fun updateCache(mediaId: String, path: String?, state: String)
@@ -173,6 +176,7 @@ class PlaybackHistoryRepository(
         artist: String,
         artworkUrl: String,
         streamUrl: String,
+        durationMs: Long = 0L,
     ) {
         val existing = dao.find(mediaId)
         dao.upsert(
@@ -186,7 +190,7 @@ class PlaybackHistoryRepository(
                 artworkUrl = artworkUrl,
                 streamUrl = streamUrl,
                 lastPositionMs = existing?.lastPositionMs ?: 0L,
-                durationMs = existing?.durationMs ?: 0L,
+                durationMs = existing?.durationMs?.takeIf { it > 0L } ?: durationMs.coerceAtLeast(0L),
                 playedAtEpochMs = nowEpochMs(),
                 playCount = (existing?.playCount ?: 0) + 1,
                 localFilePath = existing?.localFilePath,
@@ -196,7 +200,8 @@ class PlaybackHistoryRepository(
     }
 
     suspend fun find(mediaId: String): PlaybackHistoryEntity? = dao.find(mediaId)
-    suspend fun updateProgress(mediaId: String, positionMs: Long, durationMs: Long) =
+    suspend fun latest(): PlaybackHistoryEntity? = dao.latest()
+    suspend fun updateProgress(mediaId: String, positionMs: Long, durationMs: Long): Int =
         dao.updateProgress(mediaId, positionMs.coerceAtLeast(0L), durationMs.coerceAtLeast(0L))
 
     suspend fun markCaching(mediaId: String) = dao.updateCacheState(mediaId, AudioCacheState.CACHING.name)

@@ -94,6 +94,7 @@ data class AudioTrack(
     val streamUrl: String,
     val qualityLabel: String,
     val mimeType: String? = null,
+    val durationMs: Long = 0L,
 ) {
     val mediaId: String = "$bvid:$cid"
 
@@ -104,6 +105,7 @@ data class AudioTrack(
             putString(EXTRA_STREAM_URL, streamUrl)
             putString(EXTRA_RESOURCE_TITLE, title)
             putString(EXTRA_PAGE_TITLE, pageTitle)
+            putLong(EXTRA_DURATION_MS, durationMs.coerceAtLeast(0L))
         }
         return MediaItem.Builder()
             .setMediaId(mediaId)
@@ -150,3 +152,4 @@ const val EXTRA_CID = "biucar.cid"
 const val EXTRA_STREAM_URL = "biucar.stream_url"
 const val EXTRA_RESOURCE_TITLE = "biucar.resource_title"
 const val EXTRA_PAGE_TITLE = "biucar.page_title"
+const val EXTRA_DURATION_MS = "biucar.duration_ms"

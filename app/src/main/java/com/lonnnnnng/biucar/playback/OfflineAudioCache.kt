@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.media3.common.MediaItem
 import com.lonnnnnng.biucar.data.local.AudioCacheState
 import com.lonnnnnng.biucar.data.local.PlaybackHistoryRepository
+import com.lonnnnnng.biucar.data.model.EXTRA_DURATION_MS
 import com.lonnnnnng.biucar.data.model.EXTRA_STREAM_URL
 import java.io.File
 import java.io.FileOutputStream
@@ -13,6 +14,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -34,6 +36,12 @@ class OfflineAudioCache(
         val existing = historyRepository.find(mediaId)
         val existingFile = existing?.localFilePath?.let(::File)
         if (existing?.cacheState == AudioCacheState.READY.name && existingFile?.isFile == true) return
+        val durationMs = mediaItem.mediaMetadata.extras?.getLong(EXTRA_DURATION_MS, 0L) ?: 0L
+        if (durationMs > MAX_CACHE_DURATION_MS) {
+            // long: 数小时合集即使能在线播放，也很容易超过离线单项磁盘预算；直接保留“仅在线”状态，避免每次播放都重复下载后失败。
+            historyRepository.clearCache(mediaId)
+            return
+        }
         val streamUrl = mediaItem.mediaMetadata.extras?.getString(EXTRA_STREAM_URL)
             ?.takeIf(String::isNotBlank) ?: return
         if (mediaItem.localConfiguration?.uri?.scheme == "file") return
@@ -60,7 +68,8 @@ class OfflineAudioCache(
             trimToSize(mediaId)
         } catch (error: CancellationException) {
             tempFile.delete()
-            historyRepository.markFailed(mediaId)
+            // long: 取消下载时仍要把 CACHING 状态收敛为失败，否则历史页会永久显示转圈且下次无法判断是否应重试。
+            withContext(NonCancellable) { historyRepository.markFailed(mediaId) }
             throw error
         } catch (_: Exception) {
             tempFile.delete()
@@ -73,9 +82,16 @@ class OfflineAudioCache(
 
     private suspend fun trimToSize(currentMediaId: String) {
         directory.listFiles { file -> file.name.endsWith(".part") }?.forEach(File::delete)
+        val readyItems = historyRepository.readyCaches()
+        val referencedPaths = readyItems.mapNotNull { it.localFilePath }.toSet()
+        // long: Room 记录可能因异常退出而落后于文件目录，先清理没有对应历史记录的孤儿缓存，避免容量上限失效。
+        directory.listFiles { file ->
+            file.isFile && file.extension == "m4a" && file.absolutePath !in referencedPaths &&
+                file.name != "${currentMediaId.replace(':', '_')}.m4a"
+        }?.forEach(File::delete)
         var total = directory.listFiles()?.filter(File::isFile)?.sumOf(File::length) ?: 0L
         if (total <= maxBytes) return
-        historyRepository.readyCaches().forEach { item ->
+        readyItems.forEach { item ->
             if (total <= maxBytes) return
             if (item.mediaId == currentMediaId) return@forEach
             val file = item.localFilePath?.let(::File) ?: return@forEach
@@ -90,6 +106,7 @@ class OfflineAudioCache(
     private companion object {
         const val DEFAULT_MAX_BYTES = 512L * 1024L * 1024L
         const val DEFAULT_MAX_ITEM_BYTES = 256L * 1024L * 1024L
+        const val MAX_CACHE_DURATION_MS = 4L * 60L * 60L * 1_000L
     }
 }
 

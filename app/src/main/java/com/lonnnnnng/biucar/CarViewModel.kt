@@ -33,8 +33,10 @@ import com.lonnnnnng.biucar.data.model.QrPollResult
 import com.lonnnnnng.biucar.data.model.Video
 import com.lonnnnnng.biucar.playback.CarPlaybackService
 import com.lonnnnnng.biucar.playback.PlaybackOrderMode
+import com.google.common.util.concurrent.ListenableFuture
 import java.io.File
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -46,6 +48,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withContext
 
 enum class RootPage { HOME, LIBRARY, PLAYER }
 enum class LibrarySection { CREATED, COLLECTED, HISTORY, LIKED, SOURCES, ACCOUNT }
@@ -136,10 +139,9 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     private var progressJob: Job? = null
     private var mediaResolveJob: Job? = null
     private var controller: MediaController? = null
-    private val controllerFuture = MediaController.Builder(
-        application,
-        SessionToken(application, ComponentName(application, CarPlaybackService::class.java)),
-    ).buildAsync()
+    private var controllerFuture: ListenableFuture<MediaController>? = null
+    private var controllerRetryJob: Job? = null
+    private val sessionToken = SessionToken(application, ComponentName(application, CarPlaybackService::class.java))
 
     private val playerListener = object : Player.Listener {
         override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) = syncPlayerState()
@@ -153,19 +155,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
-        controllerFuture.addListener(
-            {
-                runCatching { controllerFuture.get() }.onSuccess { mediaController ->
-                    controller = mediaController
-                    mediaController.addListener(playerListener)
-                    applyPlaybackOrder(mediaController, container.playbackOrderStore.read())
-                    _uiState.update { it.copy(controllerReady = true) }
-                    syncPlayerState(includeQueue = true)
-                    startProgressTicker()
-                }.onFailure { error -> showError("播放器连接失败", error) }
-            },
-            ContextCompat.getMainExecutor(application),
-        )
+        connectController()
         viewModelScope.launch {
             container.creatorSelectionRepository.selected.collect { selected ->
                 val currentMid = _uiState.value.selectedHomeMid?.takeIf { mid -> selected.any { it.mid == mid } }
@@ -197,6 +187,38 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         refreshAccount()
+    }
+
+    private fun connectController() {
+        if (controller != null) return
+        val future = MediaController.Builder(getApplication(), sessionToken).buildAsync()
+        controllerFuture = future
+        future.addListener(
+            {
+                runCatching { future.get() }.onSuccess { mediaController ->
+                    controller = mediaController
+                    mediaController.addListener(playerListener)
+                    applyPlaybackOrder(mediaController, container.playbackOrderStore.read())
+                    _uiState.update { it.copy(controllerReady = true) }
+                    syncPlayerState(includeQueue = true)
+                    startProgressTicker()
+                }.onFailure { error ->
+                    controllerFuture = null
+                    _uiState.update { it.copy(controllerReady = false) }
+                    showError("播放器连接失败，正在重试", error)
+                    scheduleControllerRetry()
+                }
+            },
+            ContextCompat.getMainExecutor(getApplication()),
+        )
+    }
+
+    private fun scheduleControllerRetry() {
+        if (controllerRetryJob?.isActive == true) return
+        controllerRetryJob = viewModelScope.launch {
+            delay(CONTROLLER_RETRY_DELAY_MS)
+            if (isActive && controller == null) connectController()
+        }
     }
 
     fun selectRoot(page: RootPage) {
@@ -368,15 +390,15 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
                         return@launch
                     }
                     is QrPollResult.Success -> {
-                        container.credentialStore.write(result.credentials)
+                        withContext(Dispatchers.IO) { container.credentialStore.write(result.credentials) }
                         val account = runCatching { container.bilibiliRepository.account() }.getOrElse { error ->
-                            container.credentialStore.clear()
+                            withContext(Dispatchers.IO) { container.credentialStore.clear() }
                             showError("登录确认失败", error)
                             _uiState.update { it.copy(loginBusy = false, qrStatus = "登录确认失败") }
                             return@launch
                         }
                         if (!account.isLoggedIn) {
-                            container.credentialStore.clear()
+                            withContext(Dispatchers.IO) { container.credentialStore.clear() }
                             _uiState.update { it.copy(loginBusy = false, qrStatus = "服务端未确认登录，请重试") }
                             return@launch
                         }
@@ -397,8 +419,10 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         loginJob?.cancel()
         accountJob?.cancel()
         cancelAccountScopedJobs()
-        container.credentialStore.clear()
-        viewModelScope.launch { container.creatorSelectionRepository.replaceAll(emptyList()) }
+        viewModelScope.launch(Dispatchers.IO) {
+            container.credentialStore.clear()
+            container.creatorSelectionRepository.replaceAll(emptyList())
+        }
         _uiState.update {
             CarUiState(
                 rootPage = it.rootPage,
@@ -701,6 +725,14 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         mediaResolveJob = viewModelScope.launch {
             _uiState.update { it.copy(resolvingMedia = true) }
             var queueStarted = false
+            val pendingItems = ArrayList<MediaItem>(QUEUE_APPEND_BATCH_SIZE)
+
+            fun flushPendingItems() {
+                if (pendingItems.isEmpty()) return
+                appendMediaItems(pendingItems)
+                pendingItems.clear()
+            }
+
             try {
                 container.bilibiliRepository.resolveAudioTracks(video, pageIndex).collect { track ->
                     if (!queueStarted) {
@@ -709,13 +741,17 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
                         queueStarted = true
                         _uiState.update { it.copy(rootPage = RootPage.PLAYER, resolvingMedia = false) }
                     } else {
-                        appendMediaItem(track.toMediaItem())
+                        pendingItems += track.toMediaItem()
+                        if (pendingItems.size >= QUEUE_APPEND_BATCH_SIZE) flushPendingItems()
                     }
                 }
+                flushPendingItems()
             } catch (error: CancellationException) {
                 // long: 用户切换到另一条资源时，旧请求的取消是正常流程，不能把它伪装成播放失败提示干扰当前操作。
                 throw error
             } catch (error: Throwable) {
+                // long: 解析中途失败时仍追加已经拿到的分 P，避免网络抖动让已解析内容凭空丢失。
+                flushPendingItems()
                 _uiState.update { it.copy(resolvingMedia = false) }
                 showError(if (queueStarted) "后续分 P 解析失败" else "音频解析失败", error)
             }
@@ -887,10 +923,12 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         syncPlayerState()
     }
 
-    private fun appendMediaItem(mediaItem: MediaItem) {
+    private fun appendMediaItems(mediaItems: List<MediaItem>) {
         val active = controller ?: return
+        if (mediaItems.isEmpty()) return
         val currentItemEnded = active.playbackState == Player.STATE_ENDED
-        active.addMediaItem(mediaItem)
+        // long: 批量更新 Timeline，避免 200P 合集每追加一项都刷新一次车机通知和 Compose 队列，触发 Android 8.1 的通知限流。
+        active.addMediaItems(mediaItems)
         if (currentItemEnded && active.hasNextMediaItem()) {
             // long: 极短分 P 可能在下一项网络解析完成前结束；追加后主动进入下一项，保证慢网络下仍满足连续播放语义。
             active.seekToNextMediaItem()
@@ -957,8 +995,9 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
         homeLoadJob?.cancel()
         progressJob?.cancel()
         mediaResolveJob?.cancel()
+        controllerRetryJob?.cancel()
         controller?.removeListener(playerListener)
-        MediaController.releaseFuture(controllerFuture)
+        controllerFuture?.let(MediaController::releaseFuture)
         controller = null
         super.onCleared()
     }
@@ -966,5 +1005,7 @@ class CarViewModel(application: Application) : AndroidViewModel(application) {
     private companion object {
         const val TAG = "CarViewModel"
         const val QR_POLL_INTERVAL_MS = 2_000L
+        const val CONTROLLER_RETRY_DELAY_MS = 3_000L
+        const val QUEUE_APPEND_BATCH_SIZE = 16
     }
 }

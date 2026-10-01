@@ -46,16 +46,16 @@ class CredentialStore(context: Context) {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, secretKey())
         val encrypted = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
-        // long: Cookie 与 token 必须和随机 IV 一起原子提交，避免车机异常断电后留下无法解密的半份凭据。
+        // long: Cookie 与 token 在同一次编辑中写入，apply 让磁盘落盘异步完成，避免登录流程阻塞车机主线程。
         preferences.edit()
             .putString(KEY_PAYLOAD, Base64.encodeToString(encrypted, Base64.NO_WRAP))
             .putString(KEY_IV, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
-            .commit()
+            .apply()
     }
 
     @Synchronized
     fun clear() {
-        preferences.edit().clear().commit()
+        preferences.edit().clear().apply()
     }
 
     fun cookieHeader(): String? = read()?.cookieHeader?.takeIf(String::isNotBlank)

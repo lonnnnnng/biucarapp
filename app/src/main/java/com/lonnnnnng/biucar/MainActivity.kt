@@ -86,7 +86,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -126,15 +126,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
 
-private val CarBackground = Color(0xFF0B0F0D)
-private val CarSurface = Color(0xFF131A17)
-private val CarSurfaceRaised = Color(0xFF1A241F)
-private val CarGreen = Color(0xFF53E491)
-private val CarGreenSoft = Color(0xFF173A29)
-private val CarText = Color(0xFFF1F6F3)
-private val CarMuted = Color(0xFF98A69E)
-private val CarDivider = Color(0xFF26332D)
-private val CarDanger = Color(0xFFE66A6A)
+// long: 车机在白色底上需要清晰的层级和稳定的焦点反馈，使用冷灰表面与蓝灰强调色避免大面积彩色背景造成视觉疲劳。
+private val CarBackground = Color(0xFFF7F9FB)
+private val CarSurface = Color(0xFFFFFFFF)
+private val CarSurfaceRaised = Color(0xFFF0F3F6)
+private val CarAccent = Color(0xFF2F5D8C)
+private val CarAccentSoft = Color(0xFFE4EEF8)
+private val CarText = Color(0xFF1E2933)
+private val CarMuted = Color(0xFF687783)
+private val CarDivider = Color(0xFFD7E0E8)
+private val CarDanger = Color(0xFFC84C4C)
 
 class MainActivity : ComponentActivity() {
     private val viewModel: CarViewModel by viewModels()
@@ -145,24 +146,33 @@ class MainActivity : ComponentActivity() {
     @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // long: Android 8.1 车机不会可靠继承 Compose 的系统栏图标颜色，Activity 启动时显式固定为深色背景和浅色图标。
-        window.statusBarColor = android.graphics.Color.rgb(11, 15, 13)
-        window.navigationBarColor = android.graphics.Color.rgb(11, 15, 13)
+        // long: Android 8.1 车机不会可靠继承 Compose 的系统栏图标颜色，白色主题启动时显式设置浅色系统栏和深色图标。
+        window.statusBarColor = android.graphics.Color.rgb(247, 249, 251)
+        window.navigationBarColor = android.graphics.Color.rgb(247, 249, 251)
         WindowCompat.setDecorFitsSystemWindows(window, true)
         WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = false
-            isAppearanceLightNavigationBars = false
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
         }
         requestNotificationPermissionIfNeeded()
         setContent {
             MaterialTheme(
-                colorScheme = darkColorScheme(
-                    primary = CarGreen,
-                    onPrimary = Color(0xFF06140C),
+                colorScheme = lightColorScheme(
+                    primary = CarAccent,
+                    onPrimary = Color.White,
+                    primaryContainer = CarAccentSoft,
+                    onPrimaryContainer = CarText,
+                    secondary = Color(0xFF5D7185),
+                    onSecondary = Color.White,
                     background = CarBackground,
                     onBackground = CarText,
                     surface = CarSurface,
                     onSurface = CarText,
+                    surfaceVariant = CarSurfaceRaised,
+                    onSurfaceVariant = CarMuted,
+                    outline = CarDivider,
+                    error = CarDanger,
+                    onError = Color.White,
                 ),
             ) {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -218,7 +228,7 @@ private fun CarApp(state: CarUiState, viewModel: CarViewModel) {
                                 Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                                CircularProgressIndicator(color = CarAccent, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Text("正在加载音频", color = CarText, fontSize = 12.sp)
                             }
@@ -242,17 +252,7 @@ private fun CarNavigation(selected: RootPage, onSelect: (RootPage) -> Unit) {
             .focusGroup(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Surface(
-            color = CarGreenSoft,
-            shape = RoundedCornerShape(8.dp),
-            border = BorderStroke(1.dp, CarGreen.copy(alpha = 0.42f)),
-            modifier = Modifier.fillMaxWidth().height(44.dp),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text("BIU CAR", color = CarGreen, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(8.dp))
         NavigationItem("首页", Icons.Rounded.Home, selected == RootPage.HOME) { onSelect(RootPage.HOME) }
         Spacer(Modifier.height(8.dp))
         NavigationItem("媒体库", Icons.Rounded.LibraryMusic, selected == RootPage.LIBRARY) { onSelect(RootPage.LIBRARY) }
@@ -264,18 +264,18 @@ private fun CarNavigation(selected: RootPage, onSelect: (RootPage) -> Unit) {
 
 @Composable
 private fun NavigationItem(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean, onClick: () -> Unit) {
-    val color = if (selected) CarGreen else CarMuted
+    val color = if (selected) CarAccent else CarMuted
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(76.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(if (selected) CarGreenSoft else Color.Transparent)
+            .background(if (selected) CarAccentSoft else Color.Transparent)
             .clickable(role = Role.Button, onClick = onClick)
             .focusable(),
     ) {
         if (selected) {
-            Box(Modifier.width(4.dp).fillMaxHeight().background(CarGreen).align(Alignment.CenterStart))
+            Box(Modifier.width(4.dp).fillMaxHeight().background(CarAccent).align(Alignment.CenterStart))
         }
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(25.dp))
@@ -301,7 +301,7 @@ private fun HomeScreen(state: CarUiState, viewModel: CarViewModel) {
                 modifier = Modifier.size(48.dp),
             ) {
                 if (homeLoading) {
-                    CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                    CircularProgressIndicator(color = CarAccent, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
                 } else {
                     Icon(Icons.Rounded.Refresh, contentDescription = "刷新首页", tint = CarMuted, modifier = Modifier.size(22.dp))
                 }
@@ -372,7 +372,7 @@ private fun LibraryScreen(state: CarUiState, viewModel: CarViewModel) {
                     modifier = Modifier.size(48.dp),
                 ) {
                     if (state.favoriteLoading) {
-                        CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                        CircularProgressIndicator(color = CarAccent, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
                     } else {
                         Icon(Icons.Rounded.Refresh, contentDescription = "刷新收藏夹", tint = CarMuted, modifier = Modifier.size(22.dp))
                     }
@@ -495,16 +495,16 @@ private fun FolderRow(folder: FavoriteFolder, selected: Boolean, onClick: () -> 
             .focusable(),
     ) {
         if (selected) {
-            Box(Modifier.width(3.dp).fillMaxHeight().background(CarGreen).align(Alignment.CenterStart))
+            Box(Modifier.width(3.dp).fillMaxHeight().background(CarAccent).align(Alignment.CenterStart))
         }
         Row(
             Modifier.fillMaxSize().padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(Icons.Rounded.LibraryMusic, contentDescription = null, tint = if (selected) CarGreen else CarMuted, modifier = Modifier.size(20.dp))
+            Icon(Icons.Rounded.LibraryMusic, contentDescription = null, tint = if (selected) CarAccent else CarMuted, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(folder.title, color = if (selected) CarGreen else CarText, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(folder.title, color = if (selected) CarAccent else CarText, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("${folder.mediaCount} 项", color = CarMuted, fontSize = 10.sp)
             }
         }
@@ -598,7 +598,7 @@ private fun SourcesScreen(state: CarUiState, viewModel: CarViewModel) {
                     } else {
                         "已保存 ${state.selectedCreators.size} 位 UP 主"
                     },
-                    color = if (state.hasCreatorSelectionChanges) CarGreen else CarMuted,
+                    color = if (state.hasCreatorSelectionChanges) CarAccent else CarMuted,
                     fontSize = 12.sp,
                 )
             }
@@ -606,7 +606,7 @@ private fun SourcesScreen(state: CarUiState, viewModel: CarViewModel) {
                 onClick = viewModel::saveCreatorSelection,
                 enabled = state.hasCreatorSelectionChanges && !state.sourceSaveInProgress,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = CarGreen,
+                    containerColor = CarAccent,
                     disabledContainerColor = CarSurfaceRaised,
                     disabledContentColor = CarMuted,
                 ),
@@ -685,9 +685,9 @@ private fun SourcesScreen(state: CarUiState, viewModel: CarViewModel) {
                         unfocusedContainerColor = CarSurfaceRaised,
                         focusedTextColor = CarText,
                         unfocusedTextColor = CarText,
-                        focusedIndicatorColor = CarGreen,
+                        focusedIndicatorColor = CarAccent,
                         unfocusedIndicatorColor = CarDivider,
-                        cursorColor = CarGreen,
+                        cursorColor = CarAccent,
                     ),
                 )
                 Button(
@@ -700,8 +700,8 @@ private fun SourcesScreen(state: CarUiState, viewModel: CarViewModel) {
                     shape = RoundedCornerShape(6.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = CarGreen,
-                        contentColor = Color(0xFF06140C),
+                        containerColor = CarAccent,
+                        contentColor = Color(0xFFFFFFFF),
                         disabledContainerColor = CarSurfaceRaised,
                         disabledContentColor = CarMuted,
                     ),
@@ -787,7 +787,7 @@ private fun SourcesScreen(state: CarUiState, viewModel: CarViewModel) {
                             .fillMaxWidth()
                             .height(52.dp)
                             .clip(RoundedCornerShape(5.dp))
-                            .background(if (selected) CarGreenSoft.copy(alpha = 0.62f) else Color.Transparent)
+                            .background(if (selected) CarAccentSoft.copy(alpha = 0.62f) else Color.Transparent)
                             .clickable { viewModel.toggleCreator(creator) }
                             .padding(horizontal = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -795,13 +795,13 @@ private fun SourcesScreen(state: CarUiState, viewModel: CarViewModel) {
                         Icon(
                             if (selected) Icons.Rounded.CheckCircle else Icons.Rounded.Add,
                             contentDescription = if (selected) "取消选择" else "选择",
-                            tint = if (selected) CarGreen else CarMuted,
+                            tint = if (selected) CarAccent else CarMuted,
                             modifier = Modifier.size(22.dp),
                         )
                         Spacer(Modifier.width(12.dp))
                         Text(
                             creator.name,
-                            color = if (selected) CarGreen else CarText,
+                            color = if (selected) CarAccent else CarText,
                             fontSize = 14.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -881,8 +881,8 @@ private fun AccountScreen(state: CarUiState, viewModel: CarViewModel) {
                 modifier = Modifier.fillMaxWidth().height(126.dp),
             ) {
                 Row(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = CarGreenSoft, shape = RoundedCornerShape(10.dp), modifier = Modifier.size(82.dp)) {
-                        Icon(Icons.Rounded.AccountCircle, contentDescription = null, tint = CarGreen, modifier = Modifier.padding(14.dp))
+                    Surface(color = CarAccentSoft, shape = RoundedCornerShape(10.dp), modifier = Modifier.size(82.dp)) {
+                        Icon(Icons.Rounded.AccountCircle, contentDescription = null, tint = CarAccent, modifier = Modifier.padding(14.dp))
                     }
                     Spacer(Modifier.width(18.dp))
                     Column(Modifier.weight(1f)) {
@@ -897,9 +897,6 @@ private fun AccountScreen(state: CarUiState, viewModel: CarViewModel) {
                                 modifier = Modifier.weight(1f),
                             )
                             Spacer(Modifier.width(10.dp))
-                            Surface(color = CarGreenSoft, shape = RoundedCornerShape(50)) {
-                                Text("已登录", color = CarGreen, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp))
-                            }
                         }
                         Spacer(Modifier.height(7.dp))
                         Text("UID ${state.account.mid}", color = CarMuted, fontSize = 13.sp)
@@ -908,8 +905,8 @@ private fun AccountScreen(state: CarUiState, viewModel: CarViewModel) {
                         onClick = viewModel::refreshAllAccountContent,
                         enabled = !refreshingAccountContent,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = CarGreenSoft,
-                            contentColor = CarGreen,
+                            containerColor = CarAccentSoft,
+                            contentColor = CarAccent,
                             disabledContainerColor = CarSurfaceRaised,
                             disabledContentColor = CarMuted,
                         ),
@@ -917,7 +914,7 @@ private fun AccountScreen(state: CarUiState, viewModel: CarViewModel) {
                         modifier = Modifier.height(48.dp),
                     ) {
                         if (refreshingAccountContent) {
-                            CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                            CircularProgressIndicator(color = CarAccent, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
                         } else {
                             Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(20.dp))
                         }
@@ -948,9 +945,9 @@ private fun AccountScreen(state: CarUiState, viewModel: CarViewModel) {
                 AccountMetricCard("首页 UP", state.selectedCreators.size.toString(), Icons.Rounded.Home, Modifier.weight(1f))
             }
             Spacer(Modifier.height(12.dp))
-            Surface(color = CarGreenSoft.copy(alpha = 0.72f), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Surface(color = CarAccentSoft.copy(alpha = 0.72f), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Refresh, contentDescription = null, tint = CarGreen, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Rounded.Refresh, contentDescription = null, tint = CarAccent, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("刷新全部会同步账号、两组收藏夹、B站历史和关注 UP 列表", color = CarMuted, fontSize = 12.sp)
                 }
@@ -974,18 +971,18 @@ private fun AccountScreen(state: CarUiState, viewModel: CarViewModel) {
                 Spacer(Modifier.width(34.dp))
             }
             Column(Modifier.width(360.dp)) {
-                Icon(Icons.AutoMirrored.Rounded.Login, contentDescription = null, tint = CarGreen, modifier = Modifier.size(40.dp))
+                Icon(Icons.AutoMirrored.Rounded.Login, contentDescription = null, tint = CarAccent, modifier = Modifier.size(40.dp))
                 Spacer(Modifier.height(14.dp))
                 Text("扫码登录 Bilibili", color = CarText, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
                 Text("使用哔哩哔哩 App 扫码。车机不打开网页，也不在本地保存手机号或验证码。", color = CarMuted, fontSize = 13.sp, lineHeight = 20.sp)
                 Spacer(Modifier.height(14.dp))
-                Text(state.qrStatus, color = if (state.qrStatus.contains("失败") || state.qrStatus.contains("过期")) Color(0xFFFF9B9B) else CarGreen, fontSize = 13.sp)
+                Text(state.qrStatus, color = if (state.qrStatus.contains("失败") || state.qrStatus.contains("过期")) Color(0xFFB83B3B) else CarAccent, fontSize = 13.sp)
                 Spacer(Modifier.height(14.dp))
                 Button(
                     onClick = viewModel::startQrLogin,
                     enabled = !state.loginBusy || state.qrUrl != null,
-                    colors = ButtonDefaults.buttonColors(containerColor = CarGreen),
+                    colors = ButtonDefaults.buttonColors(containerColor = CarAccent),
                     shape = RoundedCornerShape(5.dp),
                 ) {
                     Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(19.dp))
@@ -1011,8 +1008,8 @@ private fun AccountMetricCard(
         modifier = modifier.height(78.dp),
     ) {
         Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = CarGreenSoft, shape = RoundedCornerShape(7.dp), modifier = Modifier.size(38.dp)) {
-                Icon(icon, contentDescription = null, tint = CarGreen, modifier = Modifier.padding(9.dp))
+            Surface(color = CarAccentSoft, shape = RoundedCornerShape(7.dp), modifier = Modifier.size(38.dp)) {
+                Icon(icon, contentDescription = null, tint = CarAccent, modifier = Modifier.padding(9.dp))
             }
             Spacer(Modifier.width(10.dp))
             Column {
@@ -1054,7 +1051,7 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
             ) {
                 Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null, tint = CarGreen, modifier = Modifier.size(20.dp))
+                        Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null, tint = CarAccent, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(7.dp))
                         Text("播放列表", color = CarText, fontSize = 18.sp, fontWeight = FontWeight.Medium)
                         Spacer(Modifier.weight(1f))
@@ -1083,7 +1080,7 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                                     Modifier
                                         .width(3.dp)
                                         .fillMaxHeight()
-                                        .background(if (active) CarGreen else Color.Transparent),
+                                        .background(if (active) CarAccent else Color.Transparent),
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
@@ -1091,7 +1088,7 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                                         Icon(
                                             if (state.isPlaying) Icons.Rounded.Equalizer else Icons.Rounded.PlayArrow,
                                             contentDescription = if (state.isPlaying) "正在播放" else "当前曲目",
-                                            tint = CarGreen,
+                                            tint = CarAccent,
                                             modifier = Modifier.size(20.dp),
                                         )
                                     }
@@ -1129,7 +1126,7 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                 overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(7.dp))
-            Text(state.nowArtist.ifBlank { "Biu Car" }, color = CarMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(state.nowArtist.ifBlank { "biu" }, color = CarMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(28.dp))
             Slider(
                 value = safeDisplayedPositionMs.toFloat(),
@@ -1140,7 +1137,7 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                 },
                 valueRange = 0f..state.durationMs.coerceAtLeast(1L).toFloat(),
                 enabled = state.controllerReady && state.durationMs > 0L,
-                colors = SliderDefaults.colors(thumbColor = CarGreen, activeTrackColor = CarGreen, inactiveTrackColor = CarDivider),
+                colors = SliderDefaults.colors(thumbColor = CarAccent, activeTrackColor = CarAccent, inactiveTrackColor = CarDivider),
             )
             Row(Modifier.fillMaxWidth()) {
                 Text(formatDuration(safeDisplayedPositionMs), color = CarMuted, fontSize = 12.sp)
@@ -1157,7 +1154,7 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                     icon = if (state.shuffleEnabled) Icons.Rounded.Shuffle else if (state.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
                     contentDescription = playbackOrderLabel(state.repeatMode, state.shuffleEnabled),
                     enabled = state.controllerReady,
-                    tint = if (state.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF && !state.shuffleEnabled) CarMuted else CarGreen,
+                    tint = if (state.repeatMode == androidx.media3.common.Player.REPEAT_MODE_OFF && !state.shuffleEnabled) CarMuted else CarAccent,
                     onClick = viewModel::cyclePlaybackOrder,
                 )
                 PlaybackControlButton(
@@ -1169,8 +1166,8 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                     onClick = viewModel::playPrevious,
                 )
                 Surface(
-                    color = if (state.controllerReady) CarGreen else CarSurfaceRaised,
-                    contentColor = if (state.controllerReady) Color(0xFF06140C) else CarMuted.copy(alpha = 0.45f),
+                    color = if (state.controllerReady) CarAccent else CarSurfaceRaised,
+                    contentColor = if (state.controllerReady) Color(0xFFFFFFFF) else CarMuted.copy(alpha = 0.45f),
                     shape = RoundedCornerShape(50),
                     modifier = Modifier.size(64.dp).clickable(
                         enabled = state.controllerReady,
@@ -1196,7 +1193,7 @@ private fun PlayerScreen(state: CarUiState, viewModel: CarViewModel) {
                     icon = if (state.liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                     contentDescription = if (state.liked) "取消喜欢" else "喜欢",
                     enabled = state.controllerReady,
-                    tint = if (state.liked) CarGreen else CarMuted,
+                    tint = if (state.liked) CarAccent else CarMuted,
                     onClick = viewModel::toggleLiked,
                 )
             }
@@ -1321,7 +1318,7 @@ private fun MiniPlayer(state: CarUiState, viewModel: CarViewModel) {
             .background(CarSurface),
     ) {
         Box(Modifier.fillMaxWidth().height(3.dp).background(CarDivider)) {
-            Box(Modifier.fillMaxWidth(progress).fillMaxHeight().background(CarGreen))
+            Box(Modifier.fillMaxWidth(progress).fillMaxHeight().background(CarAccent))
         }
         Row(
             Modifier.fillMaxWidth().weight(1f).padding(horizontal = 14.dp),
@@ -1336,13 +1333,13 @@ private fun MiniPlayer(state: CarUiState, viewModel: CarViewModel) {
                     .padding(end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Surface(color = CarGreenSoft, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Rounded.Equalizer, contentDescription = null, tint = CarGreen, modifier = Modifier.padding(9.dp))
+                Surface(color = CarAccentSoft, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Rounded.Equalizer, contentDescription = null, tint = CarAccent, modifier = Modifier.padding(9.dp))
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(queueTitleForDisplay(state.nowTitle), color = CarText, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(state.nowArtist.ifBlank { "Biu Car" }, color = CarMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(state.nowArtist.ifBlank { "biu" }, color = CarMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Text(
                     "${formatDuration(safePositionMs)} / ${formatDuration(state.durationMs)}",
@@ -1365,8 +1362,8 @@ private fun MiniPlayer(state: CarUiState, viewModel: CarViewModel) {
                 onClick = viewModel::playPrevious,
             )
             Surface(
-                color = if (state.controllerReady) CarGreen else CarSurfaceRaised,
-                contentColor = if (state.controllerReady) Color(0xFF06140C) else CarMuted.copy(alpha = 0.45f),
+                color = if (state.controllerReady) CarAccent else CarSurfaceRaised,
+                contentColor = if (state.controllerReady) Color(0xFFFFFFFF) else CarMuted.copy(alpha = 0.45f),
                 shape = RoundedCornerShape(50),
                 modifier = Modifier.size(48.dp).clickable(
                     enabled = state.controllerReady,
@@ -1464,7 +1461,7 @@ private fun VideoRow(video: Video, onPlay: () -> Unit) {
         }
         Spacer(Modifier.width(12.dp))
         video.durationSeconds?.let { Text(formatDuration(it * 1_000L), color = CarMuted, fontSize = 12.sp) }
-        Icon(Icons.Rounded.PlayArrow, contentDescription = "播放", tint = CarGreen, modifier = Modifier.size(28.dp))
+        Icon(Icons.Rounded.PlayArrow, contentDescription = "播放", tint = CarAccent, modifier = Modifier.size(28.dp))
     }
 }
 
@@ -1479,13 +1476,13 @@ private fun HistoryRow(item: PlaybackHistoryEntity, onPlay: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (cacheState == AudioCacheState.CACHING) {
-            CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
+            CircularProgressIndicator(color = CarAccent, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
         } else {
             Icon(
                 if (cacheState == AudioCacheState.READY) Icons.Rounded.CloudDone else Icons.Rounded.History,
                 contentDescription = cacheStatusLabel(cacheState),
                 tint = when (cacheState) {
-                    AudioCacheState.READY -> CarGreen
+                    AudioCacheState.READY -> CarAccent
                     AudioCacheState.FAILED -> Color(0xFFE0A05A)
                     else -> CarMuted
                 },
@@ -1502,12 +1499,12 @@ private fun HistoryRow(item: PlaybackHistoryEntity, onPlay: () -> Unit) {
             Text("${formatDuration(item.lastPositionMs)} / ${formatDuration(item.durationMs)}", color = CarMuted, fontSize = 11.sp)
             Text(
                 cacheStatusLabel(cacheState),
-                color = if (cacheState == AudioCacheState.READY) CarGreen else CarMuted,
+                color = if (cacheState == AudioCacheState.READY) CarAccent else CarMuted,
                 fontSize = 10.sp,
             )
         }
         Spacer(Modifier.width(12.dp))
-        Icon(Icons.Rounded.PlayArrow, contentDescription = "播放历史", tint = CarGreen, modifier = Modifier.size(28.dp))
+        Icon(Icons.Rounded.PlayArrow, contentDescription = "播放历史", tint = CarAccent, modifier = Modifier.size(28.dp))
     }
 }
 
@@ -1527,7 +1524,7 @@ private fun LikedRow(item: LikedMediaEntity, onPlay: () -> Unit) {
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Rounded.Favorite, contentDescription = null, tint = CarGreen, modifier = Modifier.size(24.dp))
+        Icon(Icons.Rounded.Favorite, contentDescription = null, tint = CarAccent, modifier = Modifier.size(24.dp))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(item.pageTitle?.takeIf(String::isNotBlank) ?: item.title, color = CarText, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1536,17 +1533,17 @@ private fun LikedRow(item: LikedMediaEntity, onPlay: () -> Unit) {
         }
         Text(formatDate(item.likedAtEpochMs / 1_000L), color = CarMuted, fontSize = 11.sp)
         Spacer(Modifier.width(12.dp))
-        Icon(Icons.Rounded.PlayArrow, contentDescription = "播放喜欢内容", tint = CarGreen, modifier = Modifier.size(28.dp))
+        Icon(Icons.Rounded.PlayArrow, contentDescription = "播放喜欢内容", tint = CarAccent, modifier = Modifier.size(28.dp))
     }
 }
 
 @Composable
 private fun CompactTab(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
-        color = if (selected) CarGreenSoft else CarSurfaceRaised,
-        contentColor = if (selected) CarGreen else CarMuted,
+        color = if (selected) CarAccentSoft else CarSurfaceRaised,
+        contentColor = if (selected) CarAccent else CarMuted,
         shape = RoundedCornerShape(7.dp),
-        border = BorderStroke(1.dp, if (selected) CarGreen.copy(alpha = 0.72f) else CarDivider),
+        border = BorderStroke(1.dp, if (selected) CarAccent.copy(alpha = 0.72f) else CarDivider),
         modifier = Modifier.height(44.dp)
             .clickable(role = Role.Tab, onClick = onClick)
             .focusable(),
@@ -1575,7 +1572,7 @@ private fun CompactIconAction(
     ) {
         Box(contentAlignment = Alignment.Center) {
             if (loading) {
-                CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                CircularProgressIndicator(color = CarAccent, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
             } else {
                 Icon(icon, contentDescription = contentDescription, tint = CarMuted, modifier = Modifier.size(21.dp))
             }
@@ -1590,7 +1587,7 @@ private fun LoadingStatePanel(text: String, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
+        CircularProgressIndicator(color = CarAccent, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
         Spacer(Modifier.height(10.dp))
         Text(text, color = CarMuted, fontSize = 12.sp)
     }
@@ -1610,8 +1607,8 @@ private fun ListStatePanel(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Surface(color = CarGreenSoft, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(42.dp)) {
-            Icon(icon, contentDescription = null, tint = CarGreen, modifier = Modifier.padding(10.dp))
+        Surface(color = CarAccentSoft, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(42.dp)) {
+            Icon(icon, contentDescription = null, tint = CarAccent, modifier = Modifier.padding(10.dp))
         }
         Spacer(Modifier.height(9.dp))
         Text(title, color = CarText, fontSize = 14.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
@@ -1631,7 +1628,7 @@ private fun ListStatePanel(
             Spacer(Modifier.height(10.dp))
             Button(
                 onClick = onAction,
-                colors = ButtonDefaults.buttonColors(containerColor = CarGreen, contentColor = Color(0xFF06140C)),
+                colors = ButtonDefaults.buttonColors(containerColor = CarAccent, contentColor = Color(0xFFFFFFFF)),
                 shape = RoundedCornerShape(6.dp),
                 modifier = Modifier.height(44.dp),
                 contentPadding = PaddingValues(horizontal = 18.dp),
@@ -1645,13 +1642,13 @@ private fun ListStatePanel(
 @Composable
 private fun EmptyState(title: String, detail: String, action: String, onClick: () -> Unit) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(Icons.Rounded.Settings, contentDescription = null, tint = CarGreen, modifier = Modifier.size(46.dp))
+        Icon(Icons.Rounded.Settings, contentDescription = null, tint = CarAccent, modifier = Modifier.size(46.dp))
         Spacer(Modifier.height(12.dp))
         Text(title, color = CarText, fontSize = 18.sp, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(5.dp))
         Text(detail, color = CarMuted, fontSize = 12.sp)
         Spacer(Modifier.height(15.dp))
-        Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = CarGreen), shape = RoundedCornerShape(5.dp)) {
+        Button(onClick = onClick, colors = ButtonDefaults.buttonColors(containerColor = CarAccent), shape = RoundedCornerShape(5.dp)) {
             Text(action)
         }
     }
@@ -1669,7 +1666,7 @@ private fun LoadingRow(text: String = "正在加载") {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
-        CircularProgressIndicator(color = CarGreen, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
+        CircularProgressIndicator(color = CarAccent, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(9.dp))
         Text(text, color = CarMuted, fontSize = 11.sp)
     }

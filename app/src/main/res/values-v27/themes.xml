@@ -1,0 +1,6 @@
+<resources>
+    <style name="Theme.BiuCar" parent="@style/ThemeBiuCarBase">
+        <!-- long: API 27 起系统支持浅色导航栏图标，和白色车机主题保持一致。 -->
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>
